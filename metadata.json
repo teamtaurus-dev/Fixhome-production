@@ -1,0 +1,10 @@
+{
+  "name": "Fix home",
+  "description": "Full-stack home repairs portal containing a customer booking system with GPS integration and a secured administrative dashboard.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
