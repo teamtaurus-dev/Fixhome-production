@@ -2,11 +2,159 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <link rel="icon" type="image/jpeg" href="/fixhome_logo.jpg" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" href="/icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>FixHome - Professional Home Services & Repairs</title>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js').catch(function(err) {
+            console.log('SW registration failed:', err);
+          });
+        });
+      }
+    </script>
+  
+    <!-- Anti-zoom & Stable UI Viewport Locking Script -->
+    <script>
+      (function() {
+        // Prevent pinch/gesture zoom on mobile browsers (Safari, Chrome)
+        document.addEventListener("gesturestart", function(e) { e.preventDefault(); }, { passive: false });
+        document.addEventListener("gesturechange", function(e) { e.preventDefault(); }, { passive: false });
+        document.addEventListener("gestureend", function(e) { e.preventDefault(); }, { passive: false });
+
+        // Prevent double-tap zooming on iOS/Android touch devices
+        var lastTouchEnd = 0;
+        document.addEventListener("touchend", function(event) {
+          var now = (new Date()).getTime();
+          if (now - lastTouchEnd <= 300) {
+            var tag = event.target ? event.target.tagName : "";
+            if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT" && tag !== "BUTTON" && tag !== "A") {
+              event.preventDefault();
+            }
+          }
+          lastTouchEnd = now;
+        }, { passive: false });
+      })();
+    </script>
+
   </head>
-  <body>
-    <div id="root"></div>
+  <body class="bg-slate-50 text-slate-800 antialiased min-h-screen">
+    <div id="root">
+      <!-- App Loading Skeleton for slow network connections (matches full responsive app layout) -->
+      <div style="min-height: 100vh; background-color: #f8fafc; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column;">
+        <style>
+          @keyframes appPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.35; }
+          }
+          .sk-pulse {
+            animation: appPulse 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          }
+          .sk-bg {
+            background-color: #e2e8f0;
+            border-radius: 12px;
+          }
+        </style>
+        
+        <!-- Header Bar Skeleton -->
+        <div style="background: #ffffff; border-bottom: 1px solid #e2e8f0; width: 100%; position: sticky; top: 0; z-index: 50;">
+          <div style="max-width: 1280px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 64px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <div style="width: 44px; height: 44px; border-radius: 16px; background: #0f172a; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
+                <img src="/fixhome_logo.jpg" alt="FixHome Logo" style="width: 100%; height: 100%; object-fit: cover; border-radius: 16px;" onerror="this.onerror=null;" />
+              </div>
+              <div>
+                <div style="font-weight: 900; font-size: 18px; color: #0f172a; line-height: 1; font-family: system-ui, sans-serif;">FixHome</div>
+                <div style="font-size: 10px; font-weight: 800; color: #65A30D; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em;">YOUR HOME, OUR CARE</div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <div style="width: 80px; height: 36px; border-radius: 12px;" class="sk-bg sk-pulse"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Main Content Skeleton Container -->
+        <div style="flex: 1; width: 100%; max-width: 896px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 16px;">
+          <!-- Hero Banner Skeleton -->
+          <div style="width: 100%; height: 140px; background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); border: 1px solid #e2e8f0; border-radius: 20px; padding: 20px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 1px 3px rgba(0,0,0,0.02);" class="sk-pulse">
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <div style="width: 40%; height: 20px;" class="sk-bg"></div>
+              <div style="width: 65%; height: 14px;" class="sk-bg"></div>
+            </div>
+            <div style="width: 120px; height: 36px; background-color: rgba(101, 163, 13, 0.2); border-radius: 12px; border: 1px solid rgba(101, 163, 13, 0.3);"></div>
+          </div>
+
+          <!-- Services Grid Skeleton -->
+          <div style="width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px;">
+            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 20px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <div style="width: 100%; height: 140px;" class="sk-bg sk-pulse"></div>
+              <div style="padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+                <div style="width: 50%; height: 18px;" class="sk-bg sk-pulse"></div>
+                <div style="width: 80%; height: 12px;" class="sk-bg sk-pulse"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+                  <div style="width: 30%; height: 12px;" class="sk-bg sk-pulse"></div>
+                  <div style="width: 70px; height: 32px; border-radius: 12px;" class="sk-bg sk-pulse"></div>
+                </div>
+              </div>
+            </div>
+            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 20px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <div style="width: 100%; height: 140px;" class="sk-bg sk-pulse"></div>
+              <div style="padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+                <div style="width: 50%; height: 18px;" class="sk-bg sk-pulse"></div>
+                <div style="width: 80%; height: 12px;" class="sk-bg sk-pulse"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+                  <div style="width: 30%; height: 12px;" class="sk-bg sk-pulse"></div>
+                  <div style="width: 70px; height: 32px; border-radius: 12px;" class="sk-bg sk-pulse"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Skeleton -->
+        <div style="background: #ffffff; border-top: 1px solid #e2e8f0; padding: 16px; text-align: center;">
+          <div style="width: 160px; height: 12px; margin: 0 auto;" class="sk-bg sk-pulse"></div>
+        </div>
+      </div>
+
+      <!-- Inline Offline Fallback UI for when user opens app without internet connection -->
+      <div id="offline-fallback" style="display: none; position: fixed; inset: 0; z-index: 99999; background-color: #0f172a; color: white; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; font-family: system-ui, -apple-system, sans-serif;">
+        <div style="width: 84px; height: 84px; border-radius: 22px; overflow: hidden; margin-bottom: 20px; border: 2px solid rgba(255, 255, 255, 0.2); box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.5); shrink: 0;">
+          <img src="/fixhome_logo.jpg" alt="FixHome Logo" style="width: 100%; height: 100%; object-fit: cover;" />
+        </div>
+        <span style="background: rgba(244, 63, 94, 0.2); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.3); font-size: 11px; font-weight: 800; padding: 4px 12px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;">No Internet Connection</span>
+        <h2 style="font-size: 28px; font-weight: 900; margin: 0 0 8px 0;">FixHome</h2>
+        <p style="font-size: 18px; font-weight: 800; color: #fde047; margin: 0 0 8px 0;">Please connect to the internet</p>
+        <p style="font-size: 14px; font-weight: 500; color: #94a3b8; margin: 0 0 24px 0;">Please turn on mobile data or WiFi</p>
+        <button onclick="if(navigator.onLine){window.location.reload();}else{alert('Still offline. Please connect to the internet.');}" style="width: 100%; max-width: 280px; padding: 14px 24px; background-color: #65A30D; color: white; border: none; border-radius: 12px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; box-shadow: 0 10px 15px -3px rgba(101, 163, 13, 0.3);">
+          Retry Connection
+        </button>
+      </div>
+      <script>
+        function checkConnection() {
+          var el = document.getElementById('offline-fallback');
+          if (el) {
+            if (!navigator.onLine) {
+              el.style.display = 'flex';
+            } else {
+              el.style.display = 'none';
+            }
+          }
+        }
+        checkConnection();
+        window.addEventListener('offline', checkConnection);
+        window.addEventListener('online', function() {
+          checkConnection();
+          window.location.reload();
+        });
+      </script>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

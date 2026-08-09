@@ -1,0 +1,109 @@
+{
+  "admins": [
+    {
+      "id": "1ef93408-f3f2-4237-a8af-312185467a94",
+      "mobile_number": "9849758018",
+      "password_hash": "$2b$10$odnPpdtgOyyG8WqTWZQwD.gcM9UhEA/RPIx6T2mZlPOz5MruatyKG",
+      "created_at": "2026-08-01T13:52:13.858Z"
+    }
+  ],
+  "categories": [
+    {
+      "id": "d492d2ad-d61e-4a49-b5af-fe43183f43f0",
+      "name": "Electrical Repairs",
+      "description": "Expert troubleshooting, wiring, socket replacement, and lighting repairs.",
+      "image_url": "https://images.unsplash.com/photo-1621905251189-08b45d6a269e?q=80&w=600&auto=format&fit=crop",
+      "subcategories": [
+        "Switchboard & Socket Fix - ₹149 - ₹249",
+        "Ceiling Fan Repair & Mounting - ₹249 - ₹399",
+        "MCB & Fuse Replacement - ₹299 - ₹499",
+        "Light Fitting & Chandelier Work - ₹199 - ₹349"
+      ],
+      "created_at": "2026-08-01T13:52:13.869Z"
+    },
+    {
+      "id": "9bdb3fe4-bf16-4f1b-a3a9-0ec6f8df9121",
+      "name": "Plumbing Services",
+      "description": "Leaking pipes, tap repair, blockage removals, and full bathroom diagnostics.",
+      "image_url": "https://images.unsplash.com/photo-1504328345606-18bbc8c9d7d1?q=80&w=600&auto=format&fit=crop",
+      "subcategories": [
+        "Tap Leakage & Repair - ₹199 - ₹299",
+        "Pipe Fitting & Replacement - ₹349 - ₹549",
+        "Blockage Removal & Drainage - ₹299 - ₹499",
+        "Toilet & Washbasin Fix - ₹399 - ₹599"
+      ],
+      "created_at": "2026-08-01T13:52:13.869Z"
+    },
+    {
+      "id": "f7258d96-263e-40cf-83ed-95980c74b284",
+      "name": "Carpentry & Joinery",
+      "description": "Door adjustments, furniture assembly, shelf installations, and wood polishing.",
+      "image_url": "https://images.unsplash.com/photo-1534224039826-c7a0dea0e66a?q=80&w=600&auto=format&fit=crop",
+      "subcategories": [
+        "Door Lock & Latch Repair - ₹199 - ₹299",
+        "Cabinet & Drawer Hinge Fix - ₹299 - ₹449",
+        "Bed & Furniture Assembly - ₹399 - ₹699",
+        "Wooden Door Fitting & Shaving - ₹349 - ₹549"
+      ],
+      "created_at": "2026-08-01T13:52:13.869Z"
+    }
+  ],
+  "bookings": [],
+  "workers": [
+    {
+      "id": "ff757a48-dd71-40d9-9143-55e396201f9d",
+      "name": "Ramesh Kumar",
+      "phone_number": "9876543210",
+      "category": "Electrical Repairs",
+      "photo_url": "https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=400&q=80",
+      "assigned_jobs": 0,
+      "completed_jobs": 12,
+      "created_at": "2026-08-01T13:52:13.870Z"
+    },
+    {
+      "id": "fb5e2a5b-df43-4dfe-aea1-dd77d9b821f1",
+      "name": "Suresh Verma",
+      "phone_number": "9876543211",
+      "category": "Plumbing Services",
+      "photo_url": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&q=80",
+      "assigned_jobs": 0,
+      "completed_jobs": 19,
+      "created_at": "2026-08-01T13:52:13.870Z"
+    },
+    {
+      "id": "4a2961ff-84c7-49d5-af9a-4958c5ce0732",
+      "name": "Rajesh Patel",
+      "phone_number": "9876543212",
+      "category": "Carpentry & Joinery",
+      "photo_url": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&q=80",
+      "assigned_jobs": 0,
+      "completed_jobs": 8,
+      "created_at": "2026-08-01T13:52:13.870Z"
+    }
+  ],
+  "offers": [
+    {
+      "id": "211ae646-20fd-4f02-8775-29d3b78607da",
+      "title": "🪔 Diwali Festival Season Offer",
+      "description": "Get 20% flat discount on all home maintenance & repair bookings this festival season!",
+      "discount_percentage": 20,
+      "is_festival_offer": true,
+      "min_bookings_required": 0,
+      "code": "FESTIVAL20",
+      "is_active": true,
+      "created_at": "2026-08-01T13:52:13.870Z"
+    },
+    {
+      "id": "c5289c6b-cee8-4ad6-ad5f-a12dea4bc96d",
+      "title": "⭐ Frequent Customer Loyalty Benefit",
+      "description": "Book 3 or more home service requests to unlock 15% discount automatically!",
+      "discount_percentage": 15,
+      "is_festival_offer": false,
+      "min_bookings_required": 3,
+      "code": "LOYALTY15",
+      "is_active": true,
+      "created_at": "2026-08-01T13:52:13.870Z"
+    }
+  ],
+  "users": []
+}

@@ -12,6 +12,7 @@
       "distribution": "internal"
     },
     "production": {
+      "channel": "production",
       "android": {
         "buildType": "app-bundle"
       }

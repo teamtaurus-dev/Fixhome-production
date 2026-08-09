@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "679597499589",
+    "project_id": "fixhome-c9aa5",
+    "storage_bucket": "fixhome-c9aa5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:679597499589:android:64d752d55e36264331fcac",
+        "android_client_info": {
+          "package_name": "com.fixhome.android"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBY82EK2a6e34M-OaGKJj7RjghUUxM4pT8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

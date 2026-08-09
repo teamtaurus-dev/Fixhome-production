@@ -1,0 +1,16 @@
+{
+  "short_name": "FixHome",
+  "name": "FixHome - Professional Home Services & Repairs",
+  "icons": [
+    {
+      "src": "/fixhome_logo.jpg",
+      "type": "image/jpeg",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0f172a",
+  "theme_color": "#65A30D",
+  "display": "standalone",
+  "orientation": "portrait"
+}

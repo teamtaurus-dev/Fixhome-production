@@ -1,5 +1,5 @@
 {
-  "name": "Fix home",
+  "name": "FixHome",
   "description": "Full-stack home repairs portal containing a customer booking system with GPS integration and a secured administrative dashboard.",
   "requestFramePermissions": [
     "geolocation"
