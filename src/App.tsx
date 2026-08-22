@@ -13,12 +13,13 @@ import { Language, getInitialLanguage, saveLanguage, t } from "./i18n.ts";
 import { FIXHOME_LOGO } from "./assets/logoData.ts";
 import { logNav } from "./utils/navLogger.ts";
 import { notifyNativeBackState, exitNativeApp } from "./utils/nativeBridge.ts";
+import { secureStorage } from "./utils/secureStorage.ts";
 
 function AppSkeleton() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans antialiased text-slate-800 animate-fade-in-scale">
       {/* Top Fixed Navigation Header Skeleton */}
-      <header className="bg-white/95 border-b border-slate-200/80 sticky top-0 z-50 backdrop-blur-md h-16">
+      <header className="bg-white/95 border-b border-slate-200/80 sticky top-0 z-50 backdrop-blur-md safe-header">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-slate-900 overflow-hidden shadow-md border border-slate-700 shrink-0 p-0.5 flex items-center justify-center animate-pulse-glow">
@@ -119,13 +120,13 @@ export default function App() {
 
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
-      const savedName = localStorage.getItem("fix_home_user_name");
-      const savedMobile = localStorage.getItem("fix_home_user_mobile");
+      const savedName = secureStorage.getItem<string>("fix_home_user_name") || localStorage.getItem("fix_home_user_name");
+      const savedMobile = secureStorage.getItem<string>("fix_home_user_mobile") || localStorage.getItem("fix_home_user_mobile");
       if (savedName && savedMobile) {
         return {
           name: savedName,
           mobile_number: savedMobile,
-          id: localStorage.getItem("fix_home_user_id") || undefined
+          id: secureStorage.getItem<string>("fix_home_user_id") || localStorage.getItem("fix_home_user_id") || undefined
         };
       }
     } catch (e) {}
@@ -143,6 +144,10 @@ export default function App() {
     setCurrentUser(null);
     setShowLogin(true);
     try {
+      secureStorage.removeItem("fix_home_user_mobile");
+      secureStorage.removeItem("fix_home_user_name");
+      secureStorage.removeItem("fix_home_user_id");
+      secureStorage.removeItem("fix_home_active_booking_id");
       localStorage.removeItem("fix_home_user_mobile");
       localStorage.removeItem("fix_home_user_name");
       localStorage.removeItem("fix_home_user_id");
@@ -153,9 +158,12 @@ export default function App() {
   // --- DOUBLE BACK PRESS TO EXIT APP HANDLER ---
   const [backToastMessage, setBackToastMessage] = useState<string | null>(null);
   const lastBackPressRef = useRef<number>(0);
+  const lastDispatchTimestampRef = useRef<number>(0);
+  const subviewPoppedTimestampRef = useRef<number>(0);
   const lastPopStateTimeRef = useRef<number>(0);
   const currentHistoryStateRef = useRef<any>(typeof window !== "undefined" ? window.history.state : null);
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isExitingRef = useRef<boolean>(false);
 
   // Monkey-patch history pushState/replaceState to track accurate state before pop
   useEffect(() => {
@@ -228,29 +236,8 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!window.history.state || !window.history.state.fixHomeTab) {
-      logNav("AppInit", "Initializing root history state with base guard");
-      try {
-        window.history.replaceState({ isRootGuard: true }, "", "#root-guard");
-        const rootState = { fixHomeTab: "customer", section: "book", isRoot: true };
-        window.history.pushState(rootState, "", "#customer-book");
-        currentHistoryStateRef.current = rootState;
-        notifyNativeBackState();
-      } catch (e) {}
-    } else {
-      const st = window.history.state;
-      currentHistoryStateRef.current = st;
-      logNav("AppInit", "Restored existing history state", { state: st });
-      setShowPinModal(st.modal === "pin");
-      if (st.fixHomeTab === "admin") {
-        setNavigationStack(["customer", "admin"]);
-        setActiveTab("admin");
-      } else {
-        setNavigationStack(["customer"]);
-        setActiveTab("customer");
-      }
-      notifyNativeBackState();
-    }
+    setActiveTab("customer");
+    setNavigationStack(["customer"]);
   }, []);
 
   const handlePinSubmit = (e?: React.FormEvent) => {
@@ -274,6 +261,25 @@ export default function App() {
     }
   };
 
+  // Sync app state ref for closure-safe access across hardware back and popstate
+  const appStateRef = useRef({
+    showPinModal,
+    activeTab,
+    language,
+    showLogin,
+    currentUser,
+  });
+
+  useEffect(() => {
+    appStateRef.current = {
+      showPinModal,
+      activeTab,
+      language,
+      showLogin,
+      currentUser,
+    };
+  });
+
   useEffect(() => {
     const handleOffline = () => {
       setIsOffline(true);
@@ -285,216 +291,119 @@ export default function App() {
       window.location.reload();
     };
 
-    const handlePopState = (e: PopStateEvent) => {
-      const now = Date.now();
-      lastPopStateTimeRef.current = now;
-
-      const poppedState = currentHistoryStateRef.current;
-      const currentState = e.state;
-      currentHistoryStateRef.current = currentState;
-
-      const previousBackPress = lastBackPressRef.current;
-      const timeDelta = previousBackPress > 0 ? now - previousBackPress : null;
-
-      // Check if user landed on the base root guard entry
-      const isNullState = !currentState;
-      const hasIsRootGuardFlag = Boolean(currentState?.isRootGuard);
-      const lacksFixHomeTab = !currentState?.fixHomeTab;
-      const isAtRootGuard = isNullState || hasIsRootGuardFlag || lacksFixHomeTab;
-
-      logNav("PopStateAudit", "popstate event intercepted", {
-        timestamp: new Date().toISOString(),
-        poppedState,
-        currentState,
-        historyLength: typeof window !== "undefined" ? window.history.length : 0,
-        isAtRootGuard,
-        previousBackPress,
-        timeDelta,
-        activeTab,
-      });
-
-      if (!isAtRootGuard) {
-        // User popped back to a valid screen or sub-view (e.g., Account tab, modal, or returning to Book tab)
-        logNav("PopStateAudit", "Decision: SUB_VIEW_POP -> Resetting double-back timer", {
-          closingModal: poppedState?.modal,
-          returningToTab: currentState?.fixHomeTab,
-          returningToSection: currentState?.section,
-        });
-
-        lastBackPressRef.current = 0;
-        if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-        setBackToastMessage(null);
-
-        setShowPinModal(currentState?.modal === "pin");
-        if (currentState?.fixHomeTab === "admin") {
-          setNavigationStack(["customer", "admin"]);
-          setActiveTab("admin");
-        } else {
-          setNavigationStack(["customer"]);
-          setActiveTab("customer");
-        }
-        window.scrollTo({ top: 0, behavior: "smooth" });
-        notifyNativeBackState();
-        return;
-      }
-
-      // User popped past #customer-book and landed on #root-guard
-
-      // 1. Debounce duplicate callback within 300ms from same physical back tap
-      if (previousBackPress > 0 && timeDelta !== null && timeDelta < 300) {
-        logNav("PopStateAudit", "Decision: DUPLICATE_EVENT_DEBOUNCED -> Re-arming root history state", { timeDelta });
-        try {
-          window.history.replaceState({ isRootGuard: true }, "", "#root-guard");
-          const rootState = { fixHomeTab: "customer", section: "book", isRoot: true };
-          window.history.pushState(rootState, "", "#customer-book");
-          currentHistoryStateRef.current = rootState;
-          notifyNativeBackState();
-        } catch (err) {}
-        return;
-      }
-
-      // 2. Second back press within 2.5 seconds -> Exit App
-      if (previousBackPress > 0 && timeDelta !== null && timeDelta >= 300 && timeDelta < 2500) {
-        logNav("PopStateAudit", "Decision: SECOND_BACK_PRESS_EXIT_TRIGGERED -> Triggering exitNativeApp()", {
-          previousBackPress,
-          now,
-          timeDelta,
-          thresholdMs: 2500,
-        });
-
-        setBackToastMessage(t("exitingApp", language));
-        exitNativeApp();
-        return;
-      }
-
-      // 3. First Back Press at Root -> Re-push active root state & show 2-Tap Toast
-      logNav("PopStateAudit", "Decision: FIRST_BACK_PRESS_ROOT_TRAPPED -> Showing 2-Tap Toast & Re-pushing Root State", {
-        previousBackPress,
-        now,
-        timeDelta,
-      });
-
-      lastBackPressRef.current = now;
-      try {
-        window.history.replaceState({ isRootGuard: true }, "", "#root-guard");
-        const rootState = { fixHomeTab: "customer", section: "book", isRoot: true };
-        window.history.pushState(rootState, "", "#customer-book");
-        currentHistoryStateRef.current = rootState;
-        notifyNativeBackState();
-      } catch (err) {
-        console.error("Failed to re-push rootState in handlePopState:", err);
-      }
-
-      setBackToastMessage(t("pressBackToExit", language));
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-      toastTimeoutRef.current = setTimeout(() => {
-        logNav("PopStateAudit", "2-Tap Exit Timer Expired -> Resetting lastBackPressRef to 0");
-        setBackToastMessage(null);
-        lastBackPressRef.current = 0;
-      }, 2500);
-    };
-
     const handleHardwareBack = (e?: Event): boolean => {
       if (e && typeof e.preventDefault === "function") {
         e.preventDefault();
       }
 
       const now = Date.now();
-      // If popstate already handled this back press within last 200ms, do not trigger duplicate pop
-      if (now - lastPopStateTimeRef.current < 200) {
-        logNav("HardwareBack", "popstate already handled this back press within 200ms -> skipping duplicate history.back()");
+      const current = appStateRef.current;
+
+      // 0. Debounce duplicate dispatches of the SAME physical back press across multiple listeners (within 300ms)
+      if (now - lastDispatchTimestampRef.current < 300) {
+        logNav("HardwareBack", "Ignoring rapid duplicate event of same physical press within 300ms", {
+          delta: now - lastDispatchTimestampRef.current
+        });
+        return true;
+      }
+      lastDispatchTimestampRef.current = now;
+
+      // 1. PIN modal check -> Close modal
+      if (current.showPinModal) {
+        setShowPinModal(false);
+        setPinInput("");
+        setPinError("");
+        lastBackPressRef.current = 0;
+        subviewPoppedTimestampRef.current = now;
+        if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+        setBackToastMessage(null);
         return true;
       }
 
-      const st = window.history.state || currentHistoryStateRef.current || {};
-      const isNullState = !st;
-      const hasIsRootGuardFlag = Boolean(st.isRootGuard);
-      const lacksFixHomeTab = !st.fixHomeTab;
-      const isAtRoot = isNullState || hasIsRootGuardFlag || lacksFixHomeTab;
-
-      logNav("HardwareBack", "Hardware back button callback invoked", {
-        isAtRoot,
-        st,
-        lastBackPress: lastBackPressRef.current,
-      });
-
-      if (!isAtRoot) {
-        // User is on a sub-view/modal -> Navigate back in JS history
+      // 2. Admin portal check -> return to Customer portal
+      if (current.activeTab === "admin") {
+        setActiveTab("customer");
+        setNavigationStack(["customer"]);
         lastBackPressRef.current = 0;
+        subviewPoppedTimestampRef.current = now;
         if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
         setBackToastMessage(null);
-
-        window.history.back();
-        notifyNativeBackState();
-        return true; // Signal native container that JS consumed the back event
+        return true;
       }
 
-      // User is at ROOT level
+      // 3. CustomerPortal sub-views check (Modals, Details step, Account tab, Tracker, Editing Profile)
+      if (typeof (window as any).__customerPortalBack === "function") {
+        const handledByPortal = (window as any).__customerPortalBack();
+        if (handledByPortal) {
+          logNav("HardwareBack", "Back event handled by sub-view in CustomerPortal");
+          lastBackPressRef.current = 0;
+          subviewPoppedTimestampRef.current = now;
+          isExitingRef.current = false;
+          if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+          setBackToastMessage(null);
+          return true;
+        }
+      }
+
+      // If a subview was just dismissed within the last 400ms, suppress root exit check
+      if (now - subviewPoppedTimestampRef.current < 400) {
+        logNav("HardwareBack", "Subview was recently dismissed; suppressing root exit check");
+        return true;
+      }
+
+      // 4. ROOT LEVEL DOUBLE BACK TO EXIT (On the main Services/Home screen)
       const previousBackPress = lastBackPressRef.current;
       const timeDelta = previousBackPress > 0 ? now - previousBackPress : null;
 
-      if (previousBackPress > 0 && timeDelta !== null && timeDelta < 300) {
-        // Duplicate callback from same physical tap -> return true (consumed)
-        return true;
-      }
-
-      if (previousBackPress > 0 && timeDelta !== null && timeDelta >= 300 && timeDelta < 2500) {
-        // Second back press within 2.5s -> Trigger native exit
-        logNav("HardwareBack", "Second back press detected at root -> Exiting native app");
-        setBackToastMessage(t("exitingApp", language));
+      if (previousBackPress > 0 && timeDelta !== null && timeDelta >= 300 && timeDelta <= 2500) {
+        // Genuine second back press within 2.5 seconds -> Trigger App Exit
+        logNav("HardwareBack", "Second back press detected at root -> Exiting native app", { timeDelta });
+        isExitingRef.current = true;
+        lastBackPressRef.current = 0;
+        if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+        setBackToastMessage(t("exitingApp", current.language) || "Exiting app...");
         exitNativeApp();
-        return false; // Signal native container to proceed with exit
+        return true;
       } else {
-        // First back press at root -> Show 2-Tap Toast & stay on screen
-        logNav("HardwareBack", "First back press detected at root -> Showing 2-Tap exit toast");
+        // First back press at root -> Show Toast and arm 2.5s timer
+        logNav("HardwareBack", "First back press detected at root -> Showing 2-Tap exit toast", { previousBackPress, now });
         lastBackPressRef.current = now;
+        isExitingRef.current = false;
 
-        try {
-          window.history.replaceState({ isRootGuard: true }, "", "#root-guard");
-          const rootState = { fixHomeTab: "customer", section: "book", isRoot: true };
-          window.history.pushState(rootState, "", "#customer-book");
-          currentHistoryStateRef.current = rootState;
-          notifyNativeBackState();
-        } catch (err) {}
-
-        setBackToastMessage(t("pressBackToExit", language));
+        setBackToastMessage(t("pressBackToExit", current.language) || "Click again to exit");
         if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
         toastTimeoutRef.current = setTimeout(() => {
           logNav("HardwareBack", "2-Tap Exit Timer Expired -> Resetting lastBackPressRef to 0");
-          setBackToastMessage(null);
           lastBackPressRef.current = 0;
+          setBackToastMessage(null);
         }, 2500);
 
-        return true; // Signal native container that JS consumed the back event
+        return true;
       }
+    };
+
+    const resetExitTimer = () => {
+      lastBackPressRef.current = 0;
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      setBackToastMessage(null);
     };
 
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
-    window.addEventListener("popstate", handlePopState);
-    window.addEventListener("hashchange", handlePopState);
     document.addEventListener("backbutton", handleHardwareBack);
-    (window as any).onHardwareBackPress = handleHardwareBack;
-    (window as any).onBackPressed = handleHardwareBack;
-    (window as any).handleBackPress = handleHardwareBack;
-    (window as any).onAndroidBackPress = handleHardwareBack;
-    (window as any).handleAndroidBack = handleHardwareBack;
+    (window as any).__handleHardwareBack = handleHardwareBack;
+    (window as any).__resetExitTimer = resetExitTimer;
 
     return () => {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
-      window.removeEventListener("popstate", handlePopState);
-      window.removeEventListener("hashchange", handlePopState);
       document.removeEventListener("backbutton", handleHardwareBack);
-      delete (window as any).onHardwareBackPress;
-      delete (window as any).onBackPressed;
-      delete (window as any).handleBackPress;
-      delete (window as any).onAndroidBackPress;
-      delete (window as any).handleAndroidBack;
+      delete (window as any).__handleHardwareBack;
+      delete (window as any).__resetExitTimer;
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       cancelHold();
     };
-  }, [language]);
+  }, []);
 
   // SHOW APP SKELETON SCREEN ON INITIAL MOUNT TO PREVENT WHITE SCREEN AND LOGO FLICKER
   if (isAppInitializing) {
@@ -678,11 +587,13 @@ export default function App() {
       )}
 
       {/* STANDARD NAVIGATION HEADER - FIXED AT TOP */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 border-b border-slate-200/80 shadow-xs backdrop-blur-md h-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 border-b border-slate-200/80 shadow-xs backdrop-blur-md safe-header">
+        <div className={`w-full mx-auto px-3.5 sm:px-4 h-16 flex items-center justify-between gap-3 transition-all duration-300 ${
+          activeTab === "customer" ? "max-w-md" : "max-w-7xl"
+        }`}>
           
           {/* Brand Logo & Name */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <div
               onMouseDown={startHold}
               onMouseUp={cancelHold}
@@ -691,7 +602,7 @@ export default function App() {
               onTouchEnd={cancelHold}
               onTouchCancel={cancelHold}
               onContextMenu={(e) => e.preventDefault()}
-              className={`w-11 h-11 rounded-2xl flex items-center justify-center shadow-md select-none cursor-pointer relative overflow-hidden transition-all bg-slate-900 border border-slate-200 ${
+              className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center shadow-md select-none cursor-pointer relative overflow-hidden transition-all bg-slate-900 border border-slate-200 ${
                 isHoldingLogo ? "scale-95 ring-4 ring-lime-400/60" : "hover:scale-105"
               }`}
               title="FixHome Logo (Long press for Admin Portal)"
@@ -716,7 +627,7 @@ export default function App() {
           </div>
 
           {/* Header Controls: FCM Notification Center & Navigation */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             {activeTab === "admin" && (
               <NotificationCenter
                 userRole="admin"
@@ -749,8 +660,10 @@ export default function App() {
       </header>
 
       {/* MAIN VIEW CONTENT CONTAINER WITH TOP PADDING FOR FIXED HEADER AND BOTTOM PADDING FOR FIXED FOOTER */}
-      <main className="flex-1 w-full max-w-4xl mx-auto px-3 sm:px-6 pt-20 sm:pt-22 pb-20 sm:pb-24 landscape:pb-16 flex flex-col justify-start">
-        <div className="w-full bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col flex-1 min-h-[500px] sm:min-h-[680px] landscape:min-h-0 relative">
+      <main className={`flex-1 w-full mx-auto px-2 sm:px-4 safe-main-content landscape:pb-16 flex flex-col justify-start transition-all duration-300 ${
+        activeTab === "customer" ? "max-w-2xl" : "max-w-7xl"
+      }`}>
+        <div className="w-full bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col flex-1 min-h-[500px] sm:min-h-[680px] landscape:min-h-0 relative">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -768,7 +681,11 @@ export default function App() {
                   onLogout={handleLogout}
                 />
               ) : (
-                <AdminPortal onAdminTabChange={setCurrentAdminTab} />
+                <AdminPortal
+                  onAdminTabChange={setCurrentAdminTab}
+                  currentLanguage={language}
+                  onLanguageChange={handleLanguageChange}
+                />
               )}
             </motion.div>
           </AnimatePresence>
@@ -783,10 +700,10 @@ export default function App() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.9 }}
             transition={{ duration: 0.2 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] pointer-events-none px-5 py-2.5 bg-slate-900/95 text-white text-xs font-bold rounded-full shadow-2xl border border-slate-700/60 flex items-center gap-2.5 backdrop-blur-md"
+            className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[999999] pointer-events-none px-6 py-3.5 bg-slate-950 text-white text-xs font-bold rounded-full shadow-2xl border border-slate-700/90 flex items-center gap-3 backdrop-blur-md ring-1 ring-white/20"
           >
-            <span className="w-2 h-2 rounded-full bg-[#84cc16] animate-ping shrink-0" />
-            <span>{backToastMessage}</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-[#84cc16] animate-ping shrink-0" />
+            <span className="tracking-wide text-sm font-semibold whitespace-nowrap">{backToastMessage}</span>
           </motion.div>
         )}
       </AnimatePresence>

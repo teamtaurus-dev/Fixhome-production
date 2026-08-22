@@ -25,6 +25,7 @@
     "expo-updates": "~0.27.5",
     "express": "^4.21.2",
     "firebase": "^12.17.1",
+    "jpeg-js": "^0.4.4",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
@@ -45,6 +46,7 @@
     "@types/pg": "^8.20.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
+    "sharp": "^0.35.3",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2"

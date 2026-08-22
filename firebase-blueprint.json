@@ -1,0 +1,33 @@
+{
+  "entities": {
+    "Booking": {
+      "title": "Booking",
+      "description": "Service request booking document",
+      "type": "object",
+      "properties": {
+        "request_id": { "type": "string" },
+        "customer_name": { "type": "string" },
+        "service_type": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
+    "AppSync": {
+      "title": "AppSync",
+      "description": "Global dynamic admin configuration sync document",
+      "type": "object",
+      "properties": {
+        "updatedAt": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "bookings/{bookingId}": {
+      "schema": "Booking",
+      "description": "Service dispatches and bookings"
+    },
+    "app_sync/{docId}": {
+      "schema": "AppSync",
+      "description": "Global sync documents for categories, offers, workers and settings"
+    }
+  }
+}

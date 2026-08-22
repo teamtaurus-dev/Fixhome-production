@@ -633,6 +633,63 @@ export async function addCategory(name: string, description: string, imageUrl: s
   return newCat;
 }
 
+export async function updateCategory(
+  id: string,
+  data: {
+    name?: string;
+    description?: string;
+    imageUrl?: string;
+    subcategories?: string[];
+  }
+): Promise<Category | null> {
+  if (pool) {
+    try {
+      const existing = await pool.query("SELECT * FROM categories WHERE id = $1", [id]);
+      if (existing.rowCount && existing.rowCount > 0) {
+        const current = existing.rows[0];
+        const newName = data.name !== undefined ? data.name : current.name;
+        const newDesc = data.description !== undefined ? data.description : current.description;
+        const newImg = data.imageUrl !== undefined && data.imageUrl ? data.imageUrl : current.image_url;
+        let newSubcats = current.subcategories;
+        if (data.subcategories !== undefined) {
+          newSubcats = Array.isArray(data.subcategories) ? data.subcategories : [];
+        } else if (typeof current.subcategories === "string") {
+          try {
+            newSubcats = JSON.parse(current.subcategories);
+          } catch (e) {
+            newSubcats = [];
+          }
+        }
+
+        const res = await pool.query(
+          "UPDATE categories SET name = $1, description = $2, image_url = $3, subcategories = $4 WHERE id = $5 RETURNING *",
+          [newName, newDesc, newImg, JSON.stringify(newSubcats), id]
+        );
+        if (res.rowCount && res.rowCount > 0) {
+          return formatCategory(res.rows[0]);
+        }
+      }
+    } catch (err) {
+      console.error("Error updating category in PostgreSQL:", err);
+    }
+  }
+  const db = readJsonDb();
+  const cat = db.categories.find((c) => c.id === id);
+  if (cat) {
+    if (data.name !== undefined) cat.name = data.name;
+    if (data.description !== undefined) cat.description = data.description;
+    if (data.imageUrl !== undefined && data.imageUrl) cat.image_url = data.imageUrl;
+    if (data.subcategories !== undefined) {
+      cat.subcategories = Array.isArray(data.subcategories)
+        ? data.subcategories.map((s) => s.trim()).filter(Boolean)
+        : [];
+    }
+    writeJsonDb(db);
+    return formatCategory(cat);
+  }
+  return null;
+}
+
 export async function updateCategorySubcategories(id: string, subcategories: string[]): Promise<Category | null> {
   const cleanSubcats = Array.isArray(subcategories) ? subcategories.map(s => s.trim()).filter(Boolean) : [];
   if (pool) {

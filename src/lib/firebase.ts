@@ -1,21 +1,27 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getMessaging, getToken, onMessage, isSupported, Messaging } from "firebase/messaging";
 import firebaseConfigData from "../../firebase-applet-config.json";
 
 export const firebaseConfig = {
-  apiKey: firebaseConfigData.apiKey || "AIzaSyDF-7MYIN2Q7edWkCVpWzlWN3Khah6UCVg",
-  authDomain: firebaseConfigData.authDomain || "quick-services-fsebmv.firebaseapp.com",
-  projectId: firebaseConfigData.projectId || "quick-services-fsebmv",
-  storageBucket: firebaseConfigData.storageBucket || "quick-services-fsebmv.firebasestorage.app",
-  messagingSenderId: firebaseConfigData.messagingSenderId || "759211290458",
-  appId: firebaseConfigData.appId || "1:759211290458:web:3cba99a6d1c5a2aea44d63"
+  apiKey: firebaseConfigData?.apiKey || (typeof process !== "undefined" ? process.env.VITE_FIREBASE_API_KEY : "") || "",
+  authDomain: firebaseConfigData?.authDomain || (typeof process !== "undefined" ? process.env.VITE_FIREBASE_AUTH_DOMAIN : "") || "",
+  projectId: firebaseConfigData?.projectId || (typeof process !== "undefined" ? process.env.VITE_FIREBASE_PROJECT_ID : "") || "",
+  storageBucket: firebaseConfigData?.storageBucket || "",
+  messagingSenderId: firebaseConfigData?.messagingSenderId || "",
+  appId: firebaseConfigData?.appId || ""
 };
+
+if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
+  console.error("[Firebase Security Guard] Required Firebase configuration fields are missing.");
+}
 
 // Initialize Firebase App
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-export const db = getFirestore(app, firebaseConfigData.firestoreDatabaseId);
+export const db = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true
+}, firebaseConfigData.firestoreDatabaseId);
 export const auth = getAuth(app);
 
 let messagingInstance: Messaging | null = null;

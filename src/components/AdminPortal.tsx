@@ -46,15 +46,36 @@ import {
   Pencil,
   DollarSign,
   Sliders,
-  Plus
+  Plus,
+  UploadCloud,
+  Package,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { Category, Booking, Worker, Offer } from "../types.ts";
+import { 
+  syncCategoriesToFirestore, 
+  syncOffersToFirestore, 
+  syncWorkersToFirestore, 
+  syncBookingToFirestore, 
+  subscribeAllBookingsRealtime, 
+  subscribeCategoriesRealtime, 
+  subscribeOffersRealtime, 
+  subscribeWorkersRealtime, 
+  subscribeGlobalSignalRealtime,
+  emitGlobalAdminSignal
+} from "../lib/firebaseSync.ts";
 import { FIXHOME_LOGO } from "../assets/logoData.ts";
 import { logNav } from "../utils/navLogger.ts";
 import { notifyNativeBackState } from "../utils/nativeBridge.ts";
 import Skeleton from "./Skeleton.tsx";
 import { parseSubcategoryItem, formatSubcategoryDisplay } from "../utils/categoryUtils.ts";
 import { sendFCMPushNotification } from "../lib/notifications.ts";
+import { secureStorage } from "../utils/secureStorage.ts";
+import { sanitizeNameInput, isValidPhoneNumber, sanitizeStatusUpdatePayload } from "../utils/validation.ts";
+import { compressImage } from "../utils/imageCompressor.ts";
+import { Language } from "../i18n.ts";
+import LanguageSelector from "./LanguageSelector.tsx";
 
 function safeText(val: any): string {
   if (val === null || val === undefined) return "";
@@ -127,19 +148,21 @@ const formatTimeRemaining = (ms: number): string => {
 interface AdminPortalProps {
   key?: React.Key;
   onAdminTabChange?: (tab: "active" | "all" | "history" | "workers" | "offers" | "categories") => void;
+  currentLanguage?: Language;
+  onLanguageChange?: (lang: Language) => void;
 }
 
-export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {}) {
+export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", onLanguageChange }: AdminPortalProps = {}) {
   // --- SESSION STATES ---
   const [token, setToken] = useState<string>(() => 
-    localStorage.getItem("fix_home_admin_token") || sessionStorage.getItem("fix_home_admin_token") || ""
+    secureStorage.getItem<string>("fix_home_admin_token") || localStorage.getItem("fix_home_admin_token") || sessionStorage.getItem("fix_home_admin_token") || ""
   );
   const [adminPhone, setAdminPhone] = useState<string>(() => 
-    localStorage.getItem("fix_home_admin_phone") || sessionStorage.getItem("fix_home_admin_phone") || ""
+    secureStorage.getItem<string>("fix_home_admin_phone") || localStorage.getItem("fix_home_admin_phone") || sessionStorage.getItem("fix_home_admin_phone") || ""
   );
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    const savedToken = localStorage.getItem("fix_home_admin_token") || sessionStorage.getItem("fix_home_admin_token");
-    const savedPhone = localStorage.getItem("fix_home_admin_phone") || sessionStorage.getItem("fix_home_admin_phone");
+    const savedToken = secureStorage.getItem<string>("fix_home_admin_token") || localStorage.getItem("fix_home_admin_token") || sessionStorage.getItem("fix_home_admin_token");
+    const savedPhone = secureStorage.getItem<string>("fix_home_admin_phone") || localStorage.getItem("fix_home_admin_phone") || sessionStorage.getItem("fix_home_admin_phone");
     return !!(savedToken && savedPhone);
   });
   
@@ -154,7 +177,16 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
 
   // --- DATA STATES ---
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<Category[]>(() => {
+    try {
+      const saved = localStorage.getItem("fix_home_cached_categories");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loadingBookings, setLoadingBookings] = useState<boolean>(false);
@@ -228,6 +260,16 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
   const [editingPriceCat, setEditingPriceCat] = useState<Category | null>(null);
   const [priceManageTasks, setPriceManageTasks] = useState<PriceManageTask[]>([]);
   const [savingPrices, setSavingPrices] = useState<boolean>(false);
+
+  // --- EDIT CATEGORY / SERVICE MODAL STATE ---
+  const [editingCat, setEditingCat] = useState<Category | null>(null);
+  const [editCatName, setEditCatName] = useState<string>("");
+  const [editCatDesc, setEditCatDesc] = useState<string>("");
+  const [editCatImageUrl, setEditCatImageUrl] = useState<string>("");
+  const [editCatImageFile, setEditCatImageFile] = useState<File | null>(null);
+  const [editCatImagePreview, setEditCatImagePreview] = useState<string>("");
+  const [editCatSubcats, setEditCatSubcats] = useState<string>("");
+  const [savingCatEdit, setSavingCatEdit] = useState<boolean>(false);
   
   // --- GUARDRAIL ALERTS ---
   const [coralAlert, setCoralAlert] = useState<string>(""); // Strict 30MB File constraint alert
@@ -242,11 +284,107 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
   const [piiDeleteSuccess, setPiiDeleteSuccess] = useState<string>("");
   const [piiDeleteError, setPiiDeleteError] = useState<string>("");
 
+  // --- TELEGRAM NOTIFICATION SETTINGS STATE ---
+  const [telegramBotToken, setTelegramBotToken] = useState<string>("");
+  const [telegramChatId, setTelegramChatId] = useState<string>("");
+  const [telegramEnabled, setTelegramEnabled] = useState<boolean>(true);
+  const [hasServerBotToken, setHasServerBotToken] = useState<boolean>(false);
+  const [showBotTokenSecret, setShowBotTokenSecret] = useState<boolean>(false);
+  const [savingTelegram, setSavingTelegram] = useState<boolean>(false);
+  const [testingTelegram, setTestingTelegram] = useState<boolean>(false);
+  const [telegramSuccess, setTelegramSuccess] = useState<string>("");
+  const [telegramError, setTelegramError] = useState<string>("");
+
   // --- GOOGLE MAPS LINK & NAVIGATION STATES ---
   const [copiedMapsId, setCopiedMapsId] = useState<string | null>(null);
   const [shareBooking, setShareBooking] = useState<Booking | null>(null);
   const [shareCopyFeedback, setShareCopyFeedback] = useState<boolean>(false);
-  const [adminTab, setAdminTab] = useState<"active" | "all" | "history" | "workers" | "offers" | "categories">("active");
+  const [adminTab, setAdminTab] = useState<"active" | "all" | "history" | "workers" | "offers" | "categories" | "telegram">("active");
+  const [expandedBookingServices, setExpandedBookingServices] = useState<Record<string, boolean>>({});
+
+  const toggleBookingServices = (requestId: string) => {
+    setExpandedBookingServices((prev) => ({
+      ...prev,
+      [requestId]: !prev[requestId]
+    }));
+  };
+
+  const renderBookingServices = (serviceTypeStr: string, requestId: string) => {
+    const items = (serviceTypeStr || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (items.length <= 1) {
+      return (
+        <div className="w-full max-w-full min-w-0">
+          <div className="inline-flex max-w-full min-w-0 items-center gap-1.5 bg-[#e2f1e7] text-[#52840a] text-[11px] font-extrabold px-2.5 py-1 rounded-xl border border-emerald-200 uppercase tracking-wide">
+            <Wrench size={12} className="text-[#65a30d] shrink-0" />
+            <span className="truncate min-w-0">{items[0] || "General Service"}</span>
+          </div>
+        </div>
+      );
+    }
+
+    const isExpanded = !!expandedBookingServices[requestId];
+
+    return (
+      <div className="w-full text-left space-y-2">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleBookingServices(requestId);
+          }}
+          className="w-full flex items-center justify-between bg-[#e2f1e7] hover:bg-emerald-100 text-[#52840a] text-xs font-extrabold px-3 py-1.5 rounded-xl border border-emerald-300 shadow-2xs transition-all cursor-pointer select-none active:scale-[0.99]"
+          title="Click to view all booked services"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <Package size={14} className="text-[#65a30d] shrink-0" />
+            <span className="truncate font-black">{items.length} Services Booked</span>
+          </div>
+          <div className="flex items-center gap-1 text-[10px] font-bold text-[#52840a]/90 shrink-0 ml-2">
+            <span>{isExpanded ? "Hide List" : "View All"}</span>
+            <ChevronDown
+              size={13}
+              className={`transition-transform duration-200 text-[#52840a] ${
+                isExpanded ? "rotate-180" : ""
+              }`}
+            />
+          </div>
+        </button>
+
+        {isExpanded && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="p-3 bg-slate-50/90 border border-emerald-200 rounded-2xl space-y-2 w-full animate-in fade-in zoom-in-95 duration-100 shadow-xs"
+          >
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
+              <span className="flex items-center gap-1.5 text-slate-700 font-bold">
+                <Package size={12} className="text-[#65a30d]" /> Booked Services Breakdown
+              </span>
+              <span className="bg-emerald-100 text-[#52840a] px-2 py-0.5 rounded-full text-[9px] font-black">
+                {items.length} services
+              </span>
+            </div>
+            <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+              {items.map((svc, idx) => (
+                <div
+                  key={idx}
+                  className="p-2 bg-white rounded-xl border border-slate-200 text-xs text-slate-800 font-medium leading-snug flex items-start gap-2 shadow-2xs"
+                >
+                  <span className="w-4 h-4 rounded-full bg-[#65a30d]/15 text-[#52840a] text-[9px] font-black flex items-center justify-center shrink-0 mt-0.5">
+                    {idx + 1}
+                  </span>
+                  <span className="flex-1 break-words leading-relaxed font-semibold text-slate-900">{svc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   useEffect(() => {
     onAdminTabChange?.(adminTab);
@@ -262,12 +400,93 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
   };
 
   // Back-Stack Navigation Controller for Admin Portal
-  const navigateAdminTab = (targetTab: "active" | "all" | "history" | "workers" | "offers" | "categories") => {
+  const navigateAdminTab = (targetTab: "active" | "all" | "history" | "workers" | "offers" | "categories" | "telegram") => {
     const normTab = targetTab === "all" ? "active" : targetTab;
     logNav("AdminPortal", "navigateAdminTab", { targetTab, normTab, currentAdminTab: adminTab });
     if (normTab !== adminTab) {
       pushAdminNavState(normTab);
       setAdminTab(normTab);
+    }
+  };
+
+  const fetchTelegramConfig = async () => {
+    try {
+      const cToken = getActiveToken();
+      const headers: Record<string, string> = {};
+      if (cToken) headers["Authorization"] = `Bearer ${cToken}`;
+      const res = await fetch("/api/admin/telegram-config", { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setHasServerBotToken(data.hasBotToken);
+        setTelegramChatId(data.chatId || "");
+        setTelegramEnabled(data.enabled !== false);
+      }
+    } catch (err) {
+      console.error("Error fetching telegram config:", err);
+    }
+  };
+
+  const handleSaveTelegram = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setSavingTelegram(true);
+    setTelegramSuccess("");
+    setTelegramError("");
+    try {
+      const cToken = getActiveToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (cToken) headers["Authorization"] = `Bearer ${cToken}`;
+      const res = await fetch("/api/admin/telegram-config", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          botToken: telegramBotToken,
+          chatId: telegramChatId,
+          enabled: telegramEnabled
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setTelegramSuccess("Telegram notification settings saved successfully!");
+        setHasServerBotToken(data.hasBotToken);
+        setTelegramBotToken(""); // Reset input field so placeholder shows
+      } else {
+        setTelegramError(data.error || "Failed to save Telegram settings.");
+      }
+    } catch (err) {
+      setTelegramError("Network error while saving Telegram settings.");
+    } finally {
+      setSavingTelegram(false);
+    }
+  };
+
+  const handleTestTelegram = async () => {
+    setTestingTelegram(true);
+    setTelegramSuccess("");
+    setTelegramError("");
+    try {
+      const cToken = getActiveToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (cToken) headers["Authorization"] = `Bearer ${cToken}`;
+      const res = await fetch("/api/admin/telegram-test", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          botToken: telegramBotToken,
+          chatId: telegramChatId
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setTelegramSuccess("🎉 Test notification sent! Check your Telegram chat or channel.");
+      } else {
+        setTelegramError(data.error || "Failed to send test message. Please verify Bot Token & Chat ID.");
+      }
+    } catch (err) {
+      setTelegramError("Network error while sending test notification.");
+    } finally {
+      setTestingTelegram(false);
     }
   };
 
@@ -511,6 +730,7 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
       fetchCategories();
       fetchWorkers();
       fetchOffers();
+      fetchTelegramConfig();
     }
 
     // 1-second ticker for precise 30s auto-refresh countdown
@@ -568,12 +788,78 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
     window.addEventListener("fix_home_new_booking", handleCustomNewBooking);
     window.addEventListener("focus", handleWindowFocus);
 
+    // Subscribe to Firestore real-time changes across all connected devices
+    const unsubBookings = subscribeAllBookingsRealtime((allBookings) => {
+      setBookings((prev) => {
+        const bookingMap = new Map<string, Booking>();
+        prev.forEach((b) => bookingMap.set(b.request_id, b));
+        allBookings.forEach((b) => bookingMap.set(b.request_id, b));
+        const merged = Array.from(bookingMap.values()).sort(
+          (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+        );
+
+        if (knownBookingIdsRef.current !== null) {
+          const newlyArrived = merged.filter((b) => !knownBookingIdsRef.current!.has(b.request_id));
+          if (newlyArrived.length > 0) {
+            newlyArrived.forEach((b) => {
+              knownBookingIdsRef.current!.add(b.request_id);
+              notifyAdminOfBooking(b);
+            });
+          }
+        } else {
+          knownBookingIdsRef.current = new Set(merged.map((b) => b.request_id));
+        }
+
+        try {
+          localStorage.setItem("fix_home_all_bookings", JSON.stringify(merged));
+        } catch (e) {}
+
+        return merged;
+      });
+    });
+
+    const unsubCats = subscribeCategoriesRealtime((realtimeCategories) => {
+      if (Array.isArray(realtimeCategories) && realtimeCategories.length > 0) {
+        setCategories(realtimeCategories);
+        setLoadingCats(false);
+      }
+    });
+
+    const unsubOffers = subscribeOffersRealtime((realtimeOffers) => {
+      if (Array.isArray(realtimeOffers)) {
+        setOffers(realtimeOffers);
+        setLoadingOffers(false);
+      }
+    });
+
+    const unsubWorkers = subscribeWorkersRealtime((realtimeWorkers) => {
+      if (Array.isArray(realtimeWorkers)) {
+        setWorkers(realtimeWorkers);
+        setLoadingWorkers(false);
+      }
+    });
+
+    const unsubSignal = subscribeGlobalSignalRealtime(() => {
+      const cToken = getActiveToken();
+      if (cToken) {
+        fetchBookingsRef.current?.(undefined, true);
+        fetchCategories(true);
+        fetchWorkers(true);
+        fetchOffers(true);
+      }
+    });
+
     return () => {
       clearInterval(countdownInterval);
       if (bc) bc.close();
       window.removeEventListener("storage", handleStorageChange);
       window.removeEventListener("fix_home_new_booking", handleCustomNewBooking);
       window.removeEventListener("focus", handleWindowFocus);
+      unsubBookings();
+      unsubCats();
+      unsubOffers();
+      unsubWorkers();
+      unsubSignal();
     };
   }, [isLoggedIn]);
 
@@ -660,6 +946,8 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
         setLockoutData(cleanLockout);
         saveLockoutData(cleanLockout);
 
+        secureStorage.setItem("fix_home_admin_token", data.token, 12 * 60 * 60 * 1000);
+        secureStorage.setItem("fix_home_admin_phone", data.admin.mobile_number, 12 * 60 * 60 * 1000);
         localStorage.setItem("fix_home_admin_token", data.token);
         localStorage.setItem("fix_home_admin_phone", data.admin.mobile_number);
         setToken(data.token);
@@ -726,6 +1014,8 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
   };
 
   const handleLogout = (message?: string) => {
+    secureStorage.removeItem("fix_home_admin_token");
+    secureStorage.removeItem("fix_home_admin_phone");
     localStorage.removeItem("fix_home_admin_token");
     localStorage.removeItem("fix_home_admin_phone");
     sessionStorage.removeItem("fix_home_admin_token");
@@ -806,7 +1096,9 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
         }
       }
     } catch (err) {
-      console.error("Error fetching bookings:", err);
+      if (!isSilent) {
+        console.warn("Bookings fetch notice (using cached backup if available):", err);
+      }
       // Fallback to local backup
       try {
         const rawLocal = localStorage.getItem("fix_home_all_bookings");
@@ -819,15 +1111,20 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
     }
   };
 
-  const fetchCategories = async () => {
-    setLoadingCats(true);
+  const fetchCategories = async (isSilent = false) => {
+    if (!isSilent && categories.length === 0) {
+      setLoadingCats(true);
+    }
     try {
-      const res = await fetch("/api/categories");
+      const res = await fetch(`/api/categories?t=${Date.now()}`);
       const contentType = res.headers.get("content-type");
       if (res.ok && contentType && contentType.includes("application/json")) {
         const data = await res.json();
         if (Array.isArray(data)) {
           setCategories(data);
+          try {
+            localStorage.setItem("fix_home_cached_categories", JSON.stringify(data));
+          } catch (e) {}
         }
       }
     } catch (err) {
@@ -837,10 +1134,12 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
     }
   };
 
-  const fetchWorkers = async () => {
-    setLoadingWorkers(true);
+  const fetchWorkers = async (isSilent = false) => {
+    if (!isSilent && workers.length === 0) {
+      setLoadingWorkers(true);
+    }
     try {
-      const res = await fetch("/api/workers");
+      const res = await fetch(`/api/workers?t=${Date.now()}`);
       const contentType = res.headers.get("content-type");
       if (res.ok && contentType && contentType.includes("application/json")) {
         const data = await res.json();
@@ -855,10 +1154,12 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
     }
   };
 
-  const fetchOffers = async () => {
-    setLoadingOffers(true);
+  const fetchOffers = async (isSilent = false) => {
+    if (!isSilent && offers.length === 0) {
+      setLoadingOffers(true);
+    }
     try {
-      const res = await fetch("/api/offers");
+      const res = await fetch(`/api/offers?t=${Date.now()}`);
       const contentType = res.headers.get("content-type");
       if (res.ok && contentType && contentType.includes("application/json")) {
         const data = await res.json();
@@ -1080,6 +1381,7 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
             }
           } catch (e) {}
           window.dispatchEvent(new CustomEvent("fix_home_status_updated", { detail: data.booking }));
+          syncBookingToFirestore(data.booking);
         }
         await fetchBookings(undefined, true);
         await fetchWorkers();
@@ -1180,8 +1482,16 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
     }
   };
 
-  const handleUpdateStatus = async (bookingId: string, newStatus: string) => {
-    if (newStatus === "Completed") {
+  const handleUpdateStatus = async (bookingId: string, rawStatus: string) => {
+    let cleanStatus = rawStatus;
+    try {
+      const sanitized = sanitizeStatusUpdatePayload(rawStatus);
+      cleanStatus = sanitized.status;
+    } catch {
+      cleanStatus = rawStatus;
+    }
+
+    if (cleanStatus === "completed" || cleanStatus === "Completed") {
       setStatusNotice(`Dispatch #${bookingId.slice(0, 8)} marked as Completed and transferred to Permanent Booking History.`);
       setTimeout(() => setStatusNotice(""), 5000);
     }
@@ -1190,7 +1500,7 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
     setBookings((prev) => {
       const updatedList = prev.map((b) => {
         if (b.request_id === bookingId) {
-          if (newStatus === "Completed") {
+          if (cleanStatus === "completed" || cleanStatus === "Completed") {
             return {
               ...b,
               status: "Completed" as const,
@@ -1205,7 +1515,7 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
               updated_at: new Date().toISOString()
             };
           }
-          return { ...b, status: newStatus as any, updated_at: new Date().toISOString() };
+          return { ...b, status: cleanStatus as any, updated_at: new Date().toISOString() };
         }
         return b;
       });
@@ -1228,17 +1538,17 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
         bc.postMessage({
           type: "STATUS_UPDATED",
           bookingId,
-          status: newStatus,
+          status: cleanStatus,
           service_type: serviceType,
           assigned_worker_name: workerName,
-          booking: targetBooking ? { ...targetBooking, status: newStatus } : null
+          booking: targetBooking ? { ...targetBooking, status: cleanStatus } : null
         });
         bc.close();
       }
     } catch (e) {}
 
     window.dispatchEvent(new CustomEvent("fix_home_status_updated", {
-      detail: targetBooking ? { ...targetBooking, status: newStatus } : { request_id: bookingId, status: newStatus, service_type: serviceType }
+      detail: targetBooking ? { ...targetBooking, status: cleanStatus } : { request_id: bookingId, status: cleanStatus, service_type: serviceType }
     }));
 
     const currentToken = getActiveToken();
@@ -1253,7 +1563,7 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
           "Content-Type": "application/json",
           Authorization: `Bearer ${currentToken}`
         },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify({ status: cleanStatus })
       });
 
       if (res.ok) {
@@ -1268,6 +1578,9 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
             } catch (e) {}
             return updatedList;
           });
+          syncBookingToFirestore(serverUpdatedBooking);
+        } else if (targetBooking) {
+          syncBookingToFirestore({ ...targetBooking, status: cleanStatus as any });
         }
       } else if (res.status === 401) {
         handleLogout("Session expired. Please log in again.");
@@ -1368,8 +1681,8 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
     }
   };
 
-  // CATEGORY FILE PICKER CONTROLLER WITH 30MB IMAGE VALIDATION
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // CATEGORY FILE PICKER CONTROLLER WITH 30MB IMAGE VALIDATION & INSTANT REAL-TIME MULTI-DEVICE OPTIMIZATION
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setCoralAlert("");
     setCategorySuccess("");
     const file = e.target.files?.[0];
@@ -1390,13 +1703,20 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
       return;
     }
 
-    setNewCatImage(file);
-    // Create preview
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setImagePreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    try {
+      // Compress and optimize for instant multi-device Firestore sync & zero latency rendering
+      const { dataUrl, file: compressedFile } = await compressImage(file);
+      setNewCatImage(compressedFile);
+      setImagePreview(dataUrl);
+    } catch (err) {
+      console.warn("Client compression fallback:", err);
+      setNewCatImage(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleAddCategorySubmit = async (e: React.FormEvent) => {
@@ -1409,16 +1729,20 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
       return;
     }
 
-    if (!newCatImage) {
+    if (!newCatImage && !imagePreview) {
       setCoralAlert("Please select a device gallery image for this service.");
       return;
     }
 
     setAddingCat(true);
     const formData = new FormData();
-    formData.append("name", newCatName);
-    formData.append("description", newCatDesc);
-    formData.append("image", newCatImage);
+    formData.append("name", newCatName.trim());
+    formData.append("description", newCatDesc.trim());
+    if (newCatImage) {
+      formData.append("image", newCatImage);
+    } else if (imagePreview) {
+      formData.append("image_url", imagePreview);
+    }
 
     const parsedSubcats = newCatSubcats
       .split(",")
@@ -1446,7 +1770,20 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
         setNewCatSubcats("");
         setNewCatImage(null);
         setImagePreview("");
-        fetchCategories(); // Refresh active services
+        
+        // Fetch fresh categories and immediately sync to Firestore across all devices
+        const refreshedRes = await fetch(`/api/categories?t=${Date.now()}`);
+        if (refreshedRes.ok) {
+          const freshCats = await refreshedRes.json();
+          if (Array.isArray(freshCats)) {
+            setCategories(freshCats);
+            try {
+              localStorage.setItem("fix_home_cached_categories", JSON.stringify(freshCats));
+            } catch (e) {}
+            await syncCategoriesToFirestore(freshCats);
+            await emitGlobalAdminSignal("CATEGORIES_UPDATED");
+          }
+        }
       } else {
         setCoralAlert(data.error || "Failed to create category on server.");
       }
@@ -1454,6 +1791,105 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
       setCoralAlert("Network failure during category upload process.");
     } finally {
       setAddingCat(false);
+    }
+  };
+
+  const openEditCategory = (cat: Category) => {
+    setEditingCat(cat);
+    setEditCatName(cat.name || "");
+    setEditCatDesc(cat.description || "");
+    setEditCatImageUrl(cat.image_url || "");
+    setEditCatImageFile(null);
+    setEditCatImagePreview(cat.image_url || "");
+    setEditCatSubcats((cat.subcategories || []).join(", "));
+    setCoralAlert("");
+    setCategorySuccess("");
+  };
+
+  const handleEditCatImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const THIRTY_MB = 30 * 1024 * 1024;
+    if (file.size > THIRTY_MB) {
+      setCoralAlert("CRITICAL LIMIT: Upload blocked. Image exceeds 30MB limit.");
+      return;
+    }
+
+    try {
+      // Compress and optimize for instant multi-device Firestore sync & zero latency rendering
+      const { dataUrl, file: compressedFile } = await compressImage(file);
+      setEditCatImageFile(compressedFile);
+      setEditCatImagePreview(dataUrl);
+    } catch (err) {
+      console.warn("Client compression fallback:", err);
+      setEditCatImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setEditCatImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleEditCategorySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCat) return;
+    setCoralAlert("");
+    setCategorySuccess("");
+
+    if (!editCatName.trim() || !editCatDesc.trim()) {
+      setCoralAlert("Service Name and Description are required.");
+      return;
+    }
+
+    setSavingCatEdit(true);
+    const formData = new FormData();
+    formData.append("name", editCatName.trim());
+    formData.append("description", editCatDesc.trim());
+    if (editCatImageFile) {
+      formData.append("image", editCatImageFile);
+    } else if (editCatImagePreview) {
+      formData.append("image_url", editCatImagePreview);
+    } else if (editCatImageUrl) {
+      formData.append("image_url", editCatImageUrl);
+    }
+
+    const parsedSubcats = editCatSubcats
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    formData.append("subcategories", JSON.stringify(parsedSubcats));
+
+    try {
+      const res = await fetch(`/api/categories/${editingCat.id}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success && data.category) {
+        const updatedList = categories.map((c) =>
+          c.id === editingCat.id ? data.category : c
+        );
+        setCategories(updatedList);
+        try {
+          localStorage.setItem("fix_home_cached_categories", JSON.stringify(updatedList));
+        } catch (e) {}
+        await syncCategoriesToFirestore(updatedList);
+        await emitGlobalAdminSignal("CATEGORIES_UPDATED");
+        setCategorySuccess(`Service category "${data.category.name}" and image updated successfully across all devices.`);
+        setEditingCat(null);
+      } else {
+        setCoralAlert(data.error || "Failed to update service category.");
+      }
+    } catch (err) {
+      setCoralAlert("Network failure during category update.");
+    } finally {
+      setSavingCatEdit(false);
     }
   };
 
@@ -1472,9 +1908,12 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setCategories((prev) =>
-          prev.map((c) => (c.id === catId ? { ...c, subcategories: data.category.subcategories } : c))
+        const updatedList = categories.map((c) =>
+          c.id === catId ? { ...c, subcategories: data.category.subcategories } : c
         );
+        setCategories(updatedList);
+        await syncCategoriesToFirestore(updatedList);
+        await emitGlobalAdminSignal("CATEGORIES_UPDATED");
         setCategorySuccess("Subcategories updated successfully.");
       } else {
         setCoralAlert(data.error || "Failed to update subcategories.");
@@ -1565,7 +2004,10 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
       });
 
       if (res.ok) {
-        setCategories((prev) => prev.filter((cat) => cat.id !== catId));
+        const updatedList = categories.filter((cat) => cat.id !== catId);
+        setCategories(updatedList);
+        await syncCategoriesToFirestore(updatedList);
+        await emitGlobalAdminSignal("CATEGORIES_UPDATED");
         setDeleteSuccess("Service category deleted successfully from the customer portal.");
         setDeletingCatId(null);
       } else if (res.status === 401) {
@@ -1782,85 +2224,13 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
   });
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-50 overflow-y-auto">
-      {/* Header bar */}
-      <div className="bg-white border-b border-slate-100 px-5 py-4 flex items-center justify-between sticky top-0 z-40 shadow-xs">
-        <div className="flex items-center gap-2.5 text-left">
-          <div className="w-10 h-10 rounded-2xl overflow-hidden shadow-xs border border-slate-200 shrink-0 bg-slate-900">
-            <img src={FIXHOME_LOGO} alt="FixHome Logo" className="w-full h-full object-cover" />
-          </div>
-          <div>
-            <h2 className="text-sm font-extrabold text-[#1e293b] flex items-center gap-1.5">
-              <span>FixHome</span>
-              <span className="text-xs text-slate-400 font-normal">| Admin Console</span>
-            </h2>
-            <p className="text-[10px] text-[#65a30d] font-bold flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#65a30d] animate-ping" />
-              Connected: {adminPhone}
-            </p>
-          </div>
-        </div>
-
-        {/* Real-time Notification Controls */}
-        <div className="flex items-center gap-2">
-          {/* Sound Toggle */}
-          <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className={`p-2 rounded-xl border text-xs font-semibold flex items-center gap-1 transition-all ${
-              soundEnabled
-                ? "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
-                : "bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100"
-            }`}
-            title={soundEnabled ? "Audio Chime Enabled" : "Audio Chime Muted"}
-          >
-            {soundEnabled ? <Volume2 size={16} className="text-[#65a30d]" /> : <VolumeX size={16} />}
-          </button>
-
-          {/* Desktop Push Notifications Toggle */}
-          <button
-            onClick={requestDesktopPermission}
-            className={`p-2 rounded-xl border text-xs font-semibold flex items-center gap-1 transition-all ${
-              desktopNotifyPermission === "granted"
-                ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
-            }`}
-            title={
-              desktopNotifyPermission === "granted"
-                ? "Desktop Push Alerts Active"
-                : "Click to enable Desktop Push Alerts"
-            }
-          >
-            <BellRing size={16} className={desktopNotifyPermission === "granted" ? "text-[#65a30d]" : "text-amber-600 animate-bounce"} />
-          </button>
-
-          {/* Unread Badge Indicator */}
-          <div className="relative">
-            <div className="p-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-600">
-              <Bell size={16} />
-            </div>
-            {unreadBookingIds.size > 0 && (
-              <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[9px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center animate-pulse shadow-sm">
-                {unreadBookingIds.size}
-              </span>
-            )}
-          </div>
-
-          <button
-            onClick={() => handleLogout()}
-            className="p-2 bg-slate-50 hover:bg-[#fff1f2] text-slate-500 hover:text-red-600 rounded-xl transition-all border border-slate-200 ml-1"
-            title="Sign out of Admin Session"
-          >
-            <LogOut size={16} />
-          </button>
-        </div>
-      </div>
-
+    <div className="flex-1 flex flex-col bg-slate-50 overflow-y-auto w-full min-w-0 max-w-full">
       {/* Sub-Navigation Tabs: Active Dispatches | Permanent History | Workers | Offers | Categories */}
-      <div className="bg-white border-b border-slate-200 px-5 py-2.5 flex items-center gap-2 overflow-x-auto text-xs font-bold sticky top-[69px] z-30 shadow-2xs">
+      <div className="bg-white border-b border-slate-200 px-3 sm:px-5 py-2.5 flex items-center gap-2 overflow-x-auto text-xs font-bold sticky top-0 z-30 shadow-2xs no-scrollbar">
         <button
           type="button"
           onClick={() => navigateAdminTab("active")}
-          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+          className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
             adminTab === "active" || adminTab === "all"
               ? "bg-slate-900 text-white shadow-xs"
               : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -1873,7 +2243,7 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
         <button
           type="button"
           onClick={() => navigateAdminTab("history")}
-          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+          className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
             adminTab === "history"
               ? "bg-slate-900 text-white shadow-xs"
               : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -1886,7 +2256,7 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
         <button
           type="button"
           onClick={() => navigateAdminTab("workers")}
-          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+          className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
             adminTab === "workers"
               ? "bg-slate-900 text-white shadow-xs"
               : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -1899,7 +2269,7 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
         <button
           type="button"
           onClick={() => navigateAdminTab("offers")}
-          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+          className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
             adminTab === "offers"
               ? "bg-slate-900 text-white shadow-xs"
               : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -1912,7 +2282,7 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
         <button
           type="button"
           onClick={() => navigateAdminTab("categories")}
-          className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+          className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
             adminTab === "categories"
               ? "bg-slate-900 text-white shadow-xs"
               : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -1923,84 +2293,7 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
         </button>
       </div>
 
-      <div className="p-5 space-y-6">
-        {/* NATIVE OS MOBILE PUSH NOTIFICATION PERMISSION BANNER */}
-        {desktopNotifyPermission !== "granted" && !adminNotifyBannerDismissed && (
-          <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 rounded-2xl p-4 shadow-xl border border-amber-400 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 text-left">
-              <div className="w-10 h-10 bg-slate-950/10 rounded-xl flex items-center justify-center shrink-0">
-                <BellRing size={22} className="text-slate-950 animate-bounce" />
-              </div>
-              <div>
-                <h4 className="text-xs font-black uppercase tracking-wider text-slate-950">
-                  ALLOW NOTIFICATIONS
-                </h4>
-                <p className="text-xs font-bold text-slate-900 mt-0.5 leading-snug">
-                  Allow notifications to receive instant sound alerts & lock-screen push notifications whenever a customer books a service!
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={requestDesktopPermission}
-                className="bg-slate-950 text-white hover:bg-black text-xs font-black px-4 py-2.5 rounded-xl shrink-0 shadow-md transition-all cursor-pointer border border-slate-800"
-              >
-                Allow Notifications
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAdminNotifyBannerDismissed(true);
-                  localStorage.setItem("fix_home_admin_notifications_dismissed", "true");
-                }}
-                className="text-slate-950 hover:bg-amber-600/30 p-2 rounded-xl transition-colors cursor-pointer shrink-0"
-                title="Dismiss"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* FLOATING REAL-TIME NEW BOOKING NOTIFICATION BANNER */}
-        {latestNotification && (
-          <div className="bg-emerald-600 text-white rounded-2xl p-4 shadow-xl border border-emerald-500 flex items-start justify-between gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
-            <div className="flex items-start gap-3 text-left">
-              <div className="w-9 h-9 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center text-white shrink-0 mt-0.5">
-                <BellRing size={20} className="animate-bounce" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-black tracking-wider uppercase bg-white/20 px-2 py-0.5 rounded-full">
-                    NEW BOOKING RECEIVED
-                  </span>
-                  <span className="text-[10px] text-emerald-100 font-mono">
-                    {new Date(latestNotification.created_at).toLocaleTimeString()}
-                  </span>
-                </div>
-                <p className="text-sm font-bold mt-1">
-                  Service: <span className="underline">{latestNotification.service_type}</span>
-                </p>
-                <p className="text-xs text-emerald-100 font-medium mt-0.5">
-                  Customer Phone: <strong className="text-white select-all">{latestNotification.mobile_number || "Logged"}</strong>
-                </p>
-                {latestNotification.address && (
-                  <p className="text-[11px] text-emerald-100/90 truncate max-w-xs mt-0.5">
-                    Location: {latestNotification.address}
-                  </p>
-                )}
-              </div>
-            </div>
-            <button
-              onClick={() => setLatestNotification(null)}
-              className="bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-all shrink-0 border border-white/20"
-            >
-              Acknowledge
-            </button>
-          </div>
-        )}
-
+      <div className="p-3 sm:p-5 space-y-6 max-w-4xl mx-auto w-full min-w-0 overflow-x-hidden">
         {/* REAL-TIME SENTINEL WATERMARK */}
         <div className="bg-slate-900 text-slate-300 rounded-2xl p-4 flex items-center justify-between text-xs shadow-md border border-slate-800">
           <div className="flex items-center gap-2.5 text-left">
@@ -2017,17 +2310,17 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
 
         {/* SECTION 1: BOOKING DISPATCH REQUESTS (ACTIVE DISPATCHES TAB) */}
         {(adminTab === "active" || adminTab === "all") && (
-        <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="text-left">
+        <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-100 shadow-sm space-y-4 max-w-full overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 min-w-0">
+            <div className="text-left min-w-0">
               <h3 className="text-sm font-bold text-[#1e293b] tracking-tight flex items-center gap-2">
-                <Clock size={16} className="text-[#65a30d]" />
+                <Clock size={16} className="text-[#65a30d] shrink-0" />
                 <span>Active Dispatches ({activeBookings.length})</span>
               </h3>
               <p className="text-[10px] text-slate-400 mt-0.5">Dispatches are removed from this list as soon as marked Completed</p>
             </div>
             
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 flex-wrap">
               <span className="text-[10px] bg-emerald-50 text-[#52840a] font-bold px-2.5 py-1 rounded-xl border border-emerald-200/80 flex items-center gap-1.5 shadow-2xs font-mono">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#65a30d] animate-pulse" />
                 <span>Auto-refreshing in {nextRefreshCountdown}s</span>
@@ -2113,7 +2406,7 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
               </button>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-4 max-w-full">
               {activeBookings.map((booking) => {
                 const isUnread = unreadBookingIds.has(booking.request_id);
                 return (
@@ -2128,7 +2421,7 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                         });
                       }
                     }}
-                    className={`border rounded-2xl p-4 text-left transition-all relative ${
+                    className={`border rounded-2xl p-3.5 sm:p-4 text-left transition-all relative w-full max-w-full min-w-0 overflow-hidden ${
                       isUnread 
                         ? "bg-emerald-50/50 border-emerald-300 ring-2 ring-emerald-200 shadow-md" 
                         : "bg-white border-slate-200 hover:border-slate-300"
@@ -2141,40 +2434,37 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                       </div>
                     )}
 
-                    {/* Service badge & Time info */}
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="flex flex-wrap gap-1">
-                          {booking.service_type.split(",").map((st, idx) => (
-                            <span key={idx} className="inline-block bg-[#e2f1e7] text-[#65a30d] text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase border border-emerald-200">
-                              {st.trim()}
-                            </span>
-                          ))}
-                        </div>
-                        <div className="text-[9px] text-slate-400 font-mono mt-1">
-                          Placed: {new Date(booking.created_at).toLocaleString()}
-                        </div>
+                    {/* Top Row: Placed timestamp and Status Dropdown */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 w-full pb-2 border-b border-slate-100 min-w-0">
+                      <div className="text-[10px] text-slate-500 font-mono tracking-tight flex items-center gap-1.5 min-w-0">
+                        <Clock size={11} className="text-slate-400 shrink-0" />
+                        <span className="truncate">Placed: {new Date(booking.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
                       </div>
-                    
-                    {/* Status badge and single tap slider action */}
-                    <div className="flex flex-col items-end gap-1">
-                      <select
-                        value={booking.status}
-                        onChange={(e) => handleUpdateStatus(booking.request_id, e.target.value)}
-                        className={`text-[10px] font-bold px-2 py-1 rounded-md outline-hidden border ${
-                          booking.status === "Pending" ? "bg-yellow-100 text-yellow-800 border-yellow-200" :
-                          booking.status === "Assigned" ? "bg-blue-100 text-blue-800 border-blue-200" :
-                          booking.status === "In Progress" ? "bg-purple-100 text-purple-800 border-purple-200" :
-                          "bg-emerald-100 text-emerald-800 border-emerald-200"
-                        }`}
-                      >
-                        <option value="Pending">Pending</option>
-                        <option value="Assigned">Assigned</option>
-                        <option value="In Progress">In Progress</option>
-                        <option value="Completed">Completed</option>
-                      </select>
+
+                      {/* Status badge and single tap slider action */}
+                      <div className="shrink-0 flex items-center">
+                        <select
+                          value={booking.status}
+                          onChange={(e) => handleUpdateStatus(booking.request_id, e.target.value)}
+                          className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg outline-hidden border transition-all cursor-pointer shadow-2xs ${
+                            booking.status === "Pending" ? "bg-amber-100 text-amber-900 border-amber-300" :
+                            booking.status === "Assigned" ? "bg-blue-100 text-blue-900 border-blue-300" :
+                            booking.status === "In Progress" ? "bg-purple-100 text-purple-900 border-purple-300" :
+                            "bg-emerald-100 text-emerald-900 border-emerald-300"
+                          }`}
+                        >
+                          <option value="Pending">Pending</option>
+                          <option value="Assigned">Assigned</option>
+                          <option value="In Progress">In Progress</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </div>
                     </div>
-                  </div>
+
+                    {/* Booked Services Section */}
+                    <div className="pt-2 w-full max-w-full min-w-0 overflow-hidden">
+                      {renderBookingServices(booking.service_type, booking.request_id)}
+                    </div>
 
                   {/* CUSTOMER DETAILS INTERFACE */}
                   <div className="mt-3.5 bg-slate-50 rounded-xl p-3 border border-slate-100 space-y-2 text-xs w-full max-w-full min-w-0 overflow-hidden">
@@ -2235,21 +2525,21 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <Phone size={12} className={booking.is_personal_data_deleted ? "text-slate-300" : "text-[#65a30d]"} />
-                      <span className={`font-semibold select-all ${booking.is_personal_data_deleted ? "text-slate-400 italic" : "text-slate-800"}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Phone size={12} className={booking.is_personal_data_deleted ? "text-slate-300 shrink-0" : "text-[#65a30d] shrink-0"} />
+                      <span className={`font-semibold select-all break-all ${booking.is_personal_data_deleted ? "text-slate-400 italic" : "text-slate-800"}`}>
                         {booking.is_personal_data_deleted ? "Phone deleted (6h PII auto-purge)" : (booking.mobile_number || "No contact phone logged")}
                       </span>
                     </div>
                     
-                    <div className="flex items-start gap-2">
-                      <FileText size={12} className="text-slate-400 mt-0.5" />
-                      <div className="space-y-0.5">
-                        <p className={`font-semibold select-all ${booking.is_personal_data_deleted ? "text-slate-400 italic text-[11px]" : "text-slate-700"}`}>
+                    <div className="flex items-start gap-2 min-w-0">
+                      <FileText size={12} className="text-slate-400 mt-0.5 shrink-0" />
+                      <div className="space-y-0.5 min-w-0 flex-1">
+                        <p className={`font-semibold select-all break-words ${booking.is_personal_data_deleted ? "text-slate-400 italic text-[11px]" : "text-slate-700"}`}>
                           {booking.is_personal_data_deleted ? "Location & address details deleted after 6 hrs" : (booking.address || "Address not specified")}
                         </p>
                         {booking.landmark && !booking.is_personal_data_deleted && (
-                          <p className="text-[10px] text-slate-500 font-medium">
+                          <p className="text-[10px] text-slate-500 font-medium break-words">
                             Landmark: <span className="text-slate-600">{booking.landmark}</span>
                           </p>
                         )}
@@ -2262,39 +2552,39 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                       const isCopied = copiedMapsId === booking.request_id;
 
                       return (
-                        <div className="mt-2.5 bg-[#e2f1e7]/70 border border-emerald-200/90 rounded-xl p-3 space-y-2 text-left">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                        <div className="mt-2.5 bg-[#e2f1e7]/70 border border-emerald-200/90 rounded-xl p-3 space-y-2 text-left w-full max-w-full min-w-0 overflow-hidden">
+                          <div className="flex items-center justify-between gap-2 min-w-0">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 min-w-0 truncate">
                               <MapPin size={14} className="text-rose-500 shrink-0" />
-                              <span>Google Maps Service Location</span>
+                              <span className="truncate">Google Maps Service Location</span>
                             </div>
-                            <span className="text-[9px] font-mono font-extrabold uppercase text-[#65a30d] bg-white px-2 py-0.5 rounded-full border border-emerald-200">
+                            <span className="text-[9px] font-mono font-extrabold uppercase text-[#65a30d] bg-white px-2 py-0.5 rounded-full border border-emerald-200 shrink-0">
                               Auto Link
                             </span>
                           </div>
 
-                          <div className="text-[11px] font-mono text-slate-700 bg-white/90 p-2 rounded-lg border border-slate-200/80 truncate select-all flex items-center justify-between gap-2">
-                            <span className="truncate">{mapsUrl}</span>
+                          <div className="text-[11px] font-mono text-slate-700 bg-white/90 p-2 rounded-lg border border-slate-200/80 select-all flex items-center justify-between gap-2 w-full min-w-0 overflow-hidden">
+                            <span className="truncate min-w-0 flex-1">{mapsUrl}</span>
                             {booking.latitude != null && booking.longitude != null && (
-                              <span className="text-[9px] text-slate-400 shrink-0 font-sans">
+                              <span className="text-[9px] text-slate-400 shrink-0 font-sans whitespace-nowrap">
                                 ({booking.latitude.toFixed(4)}, {booking.longitude.toFixed(4)})
                               </span>
                             )}
                           </div>
 
                           {/* Action Buttons: Open, Copy, Share */}
-                          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 pt-0.5 w-full">
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleOpenMapsLink(booking);
                               }}
-                              className="flex-1 min-w-[130px] py-1.5 px-3 bg-[#65a30d] hover:bg-[#52840a] text-white text-[11px] font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
+                              className="w-full py-2 px-3 bg-[#65a30d] hover:bg-[#52840a] text-white text-[11px] font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
                               title="Open Google Maps link in new tab or navigation app"
                             >
-                              <ExternalLink size={13} />
-                              <span>Open in Google Maps</span>
+                              <ExternalLink size={13} className="shrink-0" />
+                              <span className="truncate">Open in Google Maps</span>
                             </button>
 
                             <button
@@ -2303,15 +2593,15 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                                 e.stopPropagation();
                                 handleCopyMapsLink(booking);
                               }}
-                              className={`py-1.5 px-3 text-[11px] font-bold rounded-lg flex items-center justify-center gap-1.5 border transition-all active:scale-95 cursor-pointer ${
+                              className={`w-full py-2 px-3 text-[11px] font-bold rounded-lg flex items-center justify-center gap-1.5 border transition-all active:scale-95 cursor-pointer ${
                                 isCopied
                                   ? "bg-slate-900 text-white border-slate-900"
                                   : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
                               }`}
                               title="Copy Google Maps link to clipboard"
                             >
-                              {isCopied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-                              <span>{isCopied ? "Copied!" : "Copy Maps Link"}</span>
+                              {isCopied ? <Check size={13} className="text-emerald-400 shrink-0" /> : <Copy size={13} className="shrink-0" />}
+                              <span className="truncate">{isCopied ? "Copied!" : "Copy Maps Link"}</span>
                             </button>
 
                             <button
@@ -2320,11 +2610,11 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                                 e.stopPropagation();
                                 handleShareMapsLink(booking);
                               }}
-                              className="py-1.5 px-3 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-[11px] font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                              className="w-full py-2 px-3 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-[11px] font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                               title="Share location link via WhatsApp, SMS, or Email"
                             >
-                              <Share2 size={13} className="text-[#65a30d]" />
-                              <span>Share Maps Link</span>
+                              <Share2 size={13} className="text-[#65a30d] shrink-0" />
+                              <span className="truncate">Share Maps Link</span>
                             </button>
                           </div>
                         </div>
@@ -2332,15 +2622,15 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                     })()}
 
                     {booking.additional_notes && (
-                      <div className="bg-white p-2 border border-slate-200 rounded-lg text-[10px] text-slate-500 mt-1 leading-normal">
+                      <div className="bg-white p-2 border border-slate-200 rounded-lg text-[10px] text-slate-500 mt-1 leading-normal break-words">
                         <span className="font-bold text-slate-600 block mb-0.5">Details:</span>
                         {booking.additional_notes}
                       </div>
                     )}
 
                     {!booking.is_personal_data_deleted ? (
-                      <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
-                        <span className="text-[10px] text-slate-400 font-medium">
+                      <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[10px] text-slate-400 font-medium truncate min-w-0">
                           {booking.status === "Completed" ? "Service completed — user details ready to delete" : "Customer details active"}
                         </span>
                         <button
@@ -2517,56 +2807,52 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                 )}
               </div>
             ) : (
-              <div className="space-y-4 text-left">
+              <div className="space-y-4 text-left max-w-full">
                 {filteredHistory.map((h) => (
                   <div
                     key={h.request_id}
-                    className="p-4 bg-white border border-slate-200 hover:border-slate-300 rounded-2xl space-y-3 shadow-2xs transition-all"
+                    className="p-4 bg-white border border-slate-200 hover:border-slate-300 rounded-2xl space-y-3 shadow-2xs transition-all w-full max-w-full min-w-0 overflow-hidden"
                   >
-                    {/* Header Row */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {h.service_type.split(",").map((st, idx) => (
-                          <span
-                            key={idx}
-                            className="bg-emerald-100 text-[#52840a] font-extrabold text-[10px] px-2.5 py-0.5 rounded-full border border-emerald-200 uppercase"
-                          >
-                            {st.trim()}
-                          </span>
-                        ))}
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          Completed: {new Date(h.updated_at || h.created_at).toLocaleString()}
-                        </span>
+                    {/* Header Row: Timestamp & Status Tag */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 min-w-0">
+                      <div className="text-[10px] text-slate-500 font-mono tracking-tight flex items-center gap-1.5 min-w-0">
+                        <Clock size={11} className="text-slate-400 shrink-0" />
+                        <span className="truncate">Completed: {new Date(h.updated_at || h.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <span className="bg-emerald-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1">
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="bg-emerald-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-2xs">
                           <CheckCircle2 size={11} /> COMPLETED
                         </span>
                         <span className="text-[9px] font-mono text-slate-400 font-bold uppercase select-all">
-                          ID: {h.request_id.slice(0, 12)}...
+                          ID: {h.request_id.slice(0, 8)}...
                         </span>
                       </div>
                     </div>
 
+                    {/* Service Row */}
+                    <div className="pt-0.5 w-full max-w-full min-w-0 overflow-hidden">
+                      {renderBookingServices(h.service_type, h.request_id)}
+                    </div>
+
                     {/* Specialist & Service Details */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs w-full max-w-full min-w-0">
                       {/* Specialist Info */}
-                      <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-1.5">
+                      <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-1.5 min-w-0 overflow-hidden">
                         <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                          <UserCheck size={12} className="text-[#65a30d]" />
+                          <UserCheck size={12} className="text-[#65a30d] shrink-0" />
                           <span>Assigned Specialist</span>
                         </div>
                         {h.assigned_worker_name ? (
-                          <div className="flex items-center gap-2.5 pt-0.5">
+                          <div className="flex items-center gap-2.5 pt-0.5 min-w-0">
                             <img
                               src={h.assigned_worker_photo || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&q=80"}
                               alt={h.assigned_worker_name}
                               className="w-9 h-9 rounded-full object-cover border border-slate-300 shrink-0"
                             />
-                            <div>
-                              <p className="font-bold text-slate-900">{h.assigned_worker_name}</p>
-                              <p className="text-[10px] text-slate-500 font-mono">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-bold text-slate-900 truncate">{h.assigned_worker_name}</p>
+                              <p className="text-[10px] text-slate-500 font-mono truncate">
                                 Phone: {h.assigned_worker_phone || "N/A"}
                               </p>
                             </div>
@@ -2577,9 +2863,9 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                       </div>
 
                       {/* Customer Contact & PII Status */}
-                      <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-1.5">
+                      <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-1.5 min-w-0 overflow-hidden">
                         <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                          <User size={12} className="text-slate-500" />
+                          <User size={12} className="text-slate-500 shrink-0" />
                           <span>Customer Record</span>
                         </div>
                         {h.is_personal_data_deleted ? (
@@ -2588,13 +2874,13 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                             <span>Customer PII Auto-Sanitized • Record Preserved</span>
                           </div>
                         ) : (
-                          <div className="space-y-1 text-slate-700">
-                            <p className="font-semibold flex items-center gap-1.5">
-                              <Phone size={12} className="text-[#65a30d]" />
-                              <span>{h.mobile_number || "Logged"}</span>
+                          <div className="space-y-1 text-slate-700 min-w-0">
+                            <p className="font-semibold flex items-center gap-1.5 min-w-0">
+                              <Phone size={12} className="text-[#65a30d] shrink-0" />
+                              <span className="truncate">{h.mobile_number || "Logged"}</span>
                             </p>
                             {h.address && (
-                              <p className="text-[11px] text-slate-500 flex items-center gap-1.5 truncate">
+                              <p className="text-[11px] text-slate-500 flex items-center gap-1.5 min-w-0">
                                 <MapPin size={12} className="text-rose-500 shrink-0" />
                                 <span className="truncate">{h.address}</span>
                               </p>
@@ -2605,13 +2891,13 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                     </div>
 
                     {/* Footer Row */}
-                    <div className="flex items-center justify-between pt-1 text-xs">
-                      <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
                         <span className="text-[10px] text-slate-400">Total Value:</span>
                         <span className="font-black text-slate-900 text-sm">₹{Number(h.final_amount) || h.final_amount || 399}</span>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 shrink-0">
                         <button
                           type="button"
                           onClick={() => {
@@ -3383,7 +3669,7 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
         </div>
 
         {/* SECTION 3: MANAGE / DELETE CATEGORIES */}
-        <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm space-y-4">
+        <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-100 shadow-sm space-y-4 w-full min-w-0 overflow-hidden">
           <div className="text-left">
             <h3 className="text-sm font-bold text-[#1e293b]">Active Directories</h3>
             <p className="text-[10px] text-slate-400 mt-0.5">Delete categories to pull them out of customer client instantly</p>
@@ -3419,90 +3705,118 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
           ) : categories.length === 0 ? (
             <div className="text-center text-slate-400 text-xs">No active service categories.</div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3.5 w-full min-w-0">
               {categories.map((cat) => (
                 <div 
                   key={cat.id}
-                  className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-left space-y-3 shadow-2xs"
+                  className="p-3.5 sm:p-4 bg-slate-50 border border-slate-200/90 rounded-2xl text-left space-y-3 shadow-2xs w-full min-w-0 overflow-hidden"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <img 
-                      src={cat.image_url} 
-                      alt={cat.name} 
-                      className="w-11 h-11 rounded-xl object-cover border shrink-0 bg-slate-100" 
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <h4 className="text-xs font-bold text-[#1e293b] truncate">{cat.name}</h4>
-                      <p className="text-[10px] text-slate-400 line-clamp-2 mt-0.5 leading-relaxed">{cat.description}</p>
+                  {/* Category Title & Info */}
+                  <div className="flex items-start gap-3 min-w-0 w-full">
+                    <div className="w-10 h-10 rounded-xl border border-emerald-200 shrink-0 bg-emerald-100/70 overflow-hidden relative flex items-center justify-center text-base shadow-2xs text-[#52840a] font-black">
+                      {cat.image_url ? (
+                        <img 
+                          src={cat.image_url} 
+                          alt="" 
+                          className="w-full h-full object-cover absolute inset-0 z-10" 
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      ) : null}
+                      <span>{cat.name ? cat.name.charAt(0).toUpperCase() : "S"}</span>
                     </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm font-black text-slate-900 leading-snug break-words">{cat.name}</h4>
+                      {cat.description && (
+                        <p className="text-[11px] text-slate-500 line-clamp-2 mt-0.5 leading-relaxed break-words">{cat.description}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions Toolbar - Responsive buttons that fit all screens perfectly */}
+                  <div className="pt-2 border-t border-slate-200/70 w-full">
                     {deletingCatId === cat.id ? (
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteCategory(cat.id)}
-                          className="px-2.5 py-1 bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-bold rounded-lg transition-colors"
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDeletingCatId(null)}
-                          className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-bold rounded-lg transition-colors"
-                        >
-                          Cancel
-                        </button>
+                      <div className="flex items-center justify-between gap-2 w-full bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                        <span className="text-[11px] text-rose-700 font-bold">Permanently delete?</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCategory(cat.id)}
+                            className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-2xs"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeletingCatId(null)}
+                            className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-lg border border-slate-200 transition-colors cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full">
+                        <button
+                          type="button"
+                          onClick={() => openEditCategory(cat)}
+                          className="px-2.5 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
+                          title="Edit service name, description & cover image"
+                        >
+                          <Pencil size={13} className="stroke-[2.5]" />
+                          <span>Edit</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => openPriceManager(cat)}
-                          className="px-2.5 py-1.5 bg-[#e2f1e7] hover:bg-[#d2e8db] text-[#65a30d] border border-[#65a30d]/30 font-extrabold text-[10px] rounded-lg transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
+                          className="px-2.5 py-2 bg-[#e2f1e7] hover:bg-[#d2e8db] text-[#52840a] border border-[#65a30d]/30 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
                           title="Open price management & rate card for this category"
                         >
-                          <DollarSign size={12} className="stroke-[2.5]" />
+                          <DollarSign size={13} className="stroke-[2.5]" />
                           <span>Manage Prices</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => setDeletingCatId(cat.id)}
-                          className="p-2 bg-white text-rose-500 hover:bg-[#fff1f2] border border-slate-200 rounded-lg transition-colors shadow-2xs shrink-0 cursor-pointer"
+                          className="col-span-2 sm:col-span-1 px-3 py-2 bg-white text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl transition-colors shadow-2xs flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer active:scale-98"
                           title="Delete service directory"
                         >
                           <Trash2 size={13} />
+                          <span className="sm:hidden">Delete Category</span>
                         </button>
                       </div>
                     )}
                   </div>
 
                   {/* SUBCATEGORIES MANAGEMENT BOX */}
-                  <div className="pt-2 border-t border-slate-200/70 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
-                        <Tag size={12} className="text-[#65a30d]" />
+                  <div className="pt-2.5 border-t border-slate-200/70 space-y-2.5 w-full min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                        <Tag size={13} className="text-[#65a30d] shrink-0" />
                         <span>Subcategories & Sub-services:</span>
                       </div>
-                      <span className="text-[9px] font-semibold text-slate-400 bg-slate-200/60 px-1.5 py-0.5 rounded-md">
+                      <span className="text-[10px] font-bold text-slate-500 bg-slate-200/70 px-2 py-0.5 rounded-full shrink-0">
                         {(cat.subcategories || []).length} available
                       </span>
                     </div>
 
                     {/* SUBCATEGORY PILLS */}
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-1.5 w-full min-w-0">
                       {(cat.subcategories || []).length === 0 ? (
-                        <span className="text-[10px] text-slate-400 italic">No subcategories defined yet.</span>
+                        <span className="text-xs text-slate-400 italic">No subcategories defined yet.</span>
                       ) : (
                         (cat.subcategories || []).map((sub, idx) => {
                           const formatted = formatSubcategoryDisplay(sub);
                           return (
                             <span 
                               key={idx}
-                              className="inline-flex items-center gap-1.5 bg-white border border-slate-200 text-slate-700 text-[10px] font-medium px-2 py-0.5 rounded-lg shadow-2xs"
+                              className="inline-flex items-center gap-1.5 bg-white border border-slate-200 text-slate-700 text-xs font-medium px-2.5 py-1 rounded-xl shadow-2xs max-w-full"
                             >
-                              <span>{formatted.name}</span>
+                              <span className="truncate">{formatted.name}</span>
                               {formatted.displayPrice && (
-                                <span className="text-[9px] font-bold text-[#65a30d] bg-[#e2f1e7] px-1 rounded">
+                                <span className="text-[10px] font-bold text-[#65a30d] bg-[#e2f1e7] px-1.5 py-0.5 rounded-md shrink-0">
                                   {formatted.displayPrice}
                                 </span>
                               )}
@@ -3510,10 +3824,10 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                                 type="button"
                                 onClick={() => handleRemoveSubcategoryFromCat(cat.id, sub)}
                                 disabled={updatingSubcats}
-                                className="text-slate-400 hover:text-rose-500 transition-colors p-0.5 cursor-pointer"
+                                className="text-slate-400 hover:text-rose-500 transition-colors p-0.5 cursor-pointer shrink-0"
                                 title={`Remove "${formatted.name}"`}
                               >
-                                <X size={10} />
+                                <X size={12} />
                               </button>
                             </span>
                           );
@@ -3521,8 +3835,8 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                       )}
                     </div>
 
-                    {/* ADD SUBCATEGORY INLINE FORM */}
-                    <div className="flex items-center gap-2 pt-1">
+                    {/* ADD SUBCATEGORY INLINE FORM - Zero overflow guaranteed on mobile */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1 w-full min-w-0">
                       <input
                         type="text"
                         placeholder="E.g., Fan Repair - ₹249 - ₹399"
@@ -3534,16 +3848,16 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                             handleAddSubcategoryToCat(cat.id);
                           }
                         }}
-                        className="flex-1 text-[11px] bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-[#65a30d] outline-hidden font-medium"
+                        className="w-full min-w-0 text-xs bg-white border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-[#65a30d]/20 focus:border-[#65a30d] outline-hidden font-medium text-slate-800 placeholder:text-slate-400"
                       />
                       <button
                         type="button"
                         onClick={() => handleAddSubcategoryToCat(cat.id)}
                         disabled={updatingSubcats || !(subcatInputMap[cat.id] || "").trim()}
-                        className="px-2.5 py-1.5 bg-[#65a30d] hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-[10px] rounded-lg transition-all shrink-0 flex items-center gap-1 shadow-2xs cursor-pointer"
+                        className="w-full sm:w-auto px-4 py-2.5 bg-[#65a30d] hover:bg-[#52840a] disabled:opacity-50 text-white font-extrabold text-xs rounded-xl transition-all shrink-0 flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
                       >
-                        <PlusCircle size={11} />
-                        <span>Add Sub</span>
+                        <PlusCircle size={14} />
+                        <span>Add Subcategory</span>
                       </button>
                     </div>
                   </div>
@@ -3859,6 +4173,155 @@ export default function AdminPortal({ onAdminTabChange }: AdminPortalProps = {})
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT SERVICE / CATEGORY MODAL */}
+      {editingCat && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-5 shadow-2xl border border-slate-100 space-y-4 my-8 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5 text-sky-600">
+                <div className="w-10 h-10 rounded-2xl bg-sky-50 flex items-center justify-center shrink-0">
+                  <Pencil size={20} className="stroke-[2.5]" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#1e293b]">
+                    Edit Service Category & Image
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    Updates will sync to all user devices and mobiles instantly in real-time.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingCat(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditCategorySubmit} className="space-y-3.5 text-left">
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                  Service Title / Category Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editCatName}
+                  onChange={(e) => setEditCatName(e.target.value)}
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 font-bold text-slate-800 focus:ring-1 focus:ring-sky-500 outline-hidden"
+                  placeholder="E.g., Electrical Repairs"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                  Description *
+                </label>
+                <textarea
+                  required
+                  rows={2}
+                  value={editCatDesc}
+                  onChange={(e) => setEditCatDesc(e.target.value)}
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium text-slate-700 focus:ring-1 focus:ring-sky-500 outline-hidden"
+                  placeholder="Short description of service offerings..."
+                />
+              </div>
+
+              {/* SERVICE COVER IMAGE */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                  Service Cover Image (Device Gallery / Camera)
+                </label>
+                <div className="flex items-center gap-3">
+                  {editCatImagePreview ? (
+                    <img 
+                      src={editCatImagePreview} 
+                      alt="Preview" 
+                      className="w-16 h-16 rounded-xl object-cover border border-slate-200 shadow-2xs shrink-0" 
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
+                      <ImageIcon size={20} />
+                    </div>
+                  )}
+                  <div className="flex-1 space-y-1.5">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      id="edit-cat-image-file"
+                      className="hidden"
+                      onChange={handleEditCatImageChange}
+                    />
+                    <label
+                      htmlFor="edit-cat-image-file"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                    >
+                      <UploadCloud size={14} />
+                      <span>Choose New Image (Max 30MB)</span>
+                    </label>
+                    <p className="text-[9px] text-slate-400 leading-tight">
+                      Select photo from gallery or camera. Converts instantly for all mobile users.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* SUBCATEGORIES */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                  Subcategories (Comma separated)
+                </label>
+                <input
+                  type="text"
+                  value={editCatSubcats}
+                  onChange={(e) => setEditCatSubcats(e.target.value)}
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium text-slate-700 focus:ring-1 focus:ring-sky-500 outline-hidden"
+                  placeholder="Task 1 - ₹199, Task 2 - ₹299..."
+                />
+              </div>
+
+              {coralAlert && (
+                <div className="p-3 bg-[#fff1f2] border border-rose-100 text-rose-700 rounded-xl text-[10px] font-semibold leading-relaxed flex items-start gap-2">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5 text-rose-500" />
+                  <div>{coralAlert}</div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={savingCatEdit}
+                  onClick={() => setEditingCat(null)}
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingCatEdit}
+                  className="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-xl text-xs font-extrabold transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+                >
+                  {savingCatEdit ? (
+                    <>
+                      <RefreshCw size={13} className="animate-spin" />
+                      <span>Saving & Syncing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={14} />
+                      <span>Save & Sync Service</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

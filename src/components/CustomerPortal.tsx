@@ -28,6 +28,7 @@ import {
   LogOut,
   Languages,
   Copy,
+  MessageSquare,
   Award,
   Lock,
   Eye,
@@ -38,14 +39,23 @@ import {
   BellRing
 } from "lucide-react";
 import { Category, Booking, Offer } from "../types.ts";
+import { 
+  subscribeCategoriesRealtime, 
+  subscribeOffersRealtime, 
+  subscribeGlobalSignalRealtime, 
+  subscribeBookingRealtime, 
+  syncBookingToFirestore,
+  fetchUserBookingsFromFirestore
+} from "../lib/firebaseSync.ts";
 import PrivacyPolicy from "./PrivacyPolicy.tsx";
 import Skeleton from "./Skeleton.tsx";
 import LanguageSelector from "./LanguageSelector.tsx";
 import { Language, t } from "../i18n.ts";
 import { FIXHOME_LOGO } from "../assets/logoData.ts";
 import { logNav } from "../utils/navLogger.ts";
-import { notifyNativeBackState } from "../utils/nativeBridge.ts";
-import { isValidName, sanitizeNameInput, isValidPhoneNumber } from "../utils/validation.ts";
+import { notifyNativeBackState, dialNativePhoneNumber } from "../utils/nativeBridge.ts";
+import { isValidName, sanitizeNameInput, isValidPhoneNumber, sanitizeBookingPayload } from "../utils/validation.ts";
+import { secureStorage } from "../utils/secureStorage.ts";
 import { SubCategoryItem, parseSubcategoryItem, formatSubcategoryDisplay } from "../utils/categoryUtils.ts";
 import { sendFCMPushNotification } from "../lib/notifications.ts";
 import { doc, setDoc } from "firebase/firestore";
@@ -99,12 +109,17 @@ function getLocalizedCategoryName(cat: Category, lang: Language): string {
 function getLocalizedCategoryDesc(cat: Category, lang: Language): string {
   if (lang === "te") {
     const nameLower = (cat.name || "").toLowerCase();
-    if (cat.id === "cat_1" || nameLower.includes("plumb")) return "టాప్ లీకేజీ, పైప్ ఫిట్టింగ్స్, బ్లాకేజ్ తొలగింపు, టాయిలేట్ & బేసిన్ రిపేర్";
-    if (cat.id === "cat_2" || nameLower.includes("electr")) return "షార్ట్ సర్క్యూట్ బాగు చేయడం, స్విచ్ బోర్డులు, MCB మార్పిడి, ఫ్యాన్ & లైట్ ఫిట్టింగ్";
-    if (cat.id === "cat_3" || nameLower.includes("appliance") || nameLower.includes("ac")) return "ఏసీ కూలింగ్ రిపేర్, గ్యాస్ ఛార్జింగ్, వాషింగ్ మెషిన్, ఫ్రిజ్ & గీజర్ సర్వీస్";
-    if (cat.id === "cat_4" || nameLower.includes("carpent")) return "డోర్ లాక్ బాగు చేయడం, క్యాబినెట్ రిపేర్లు, బెడ్ అసెంబ్లీ, చెక్క ఫర్నిచర్ పనులు";
-    if (cat.id === "cat_5" || nameLower.includes("paint")) return "గోడల పెయింటింగ్, వాటర్‌ప్రూఫ్ ప్యాచింగ్, ఎనామిల్ కోటింగ్, ఇంటీరియర్ టచ్‌అప్‌లు";
-    if (cat.id === "cat_6" || nameLower.includes("clean")) return "డీప్ బాత్‌రూమ్ క్లీనింగ్, కిచెన్ గ్రీస్ తొలగింపు, సోఫా & కార్పెట్ క్లీనింగ్";
+    const descLower = (cat.description || "").toLowerCase();
+    if (cat.id === "cat_1" || nameLower.includes("plumb") || descLower.includes("tap")) return "టాప్ లీకేజీ, పైప్ ఫిట్టింగ్స్, బ్లాకేజ్ తొలగింపు, టాయిలెట్ & బేసిన్ రిపేర్";
+    if (cat.id === "cat_2" || nameLower.includes("electr") || descLower.includes("switch")) return "షార్ట్ సర్క్యూట్ బాగు చేయడం, స్విచ్ బోర్డులు, MCB మార్పిడి, ఫ్యాన్ & లైట్ ఫిట్టింగ్";
+    if (cat.id === "cat_3" || nameLower.includes("appliance") || nameLower.includes("ac") || descLower.includes("ac")) return "ఏసీ కూలింగ్ రిపేర్, గ్యాస్ ఛార్జింగ్, వాషింగ్ మెషిన్, ఫ్రిజ్ & గీజర్ సర్వీస్";
+    if (cat.id === "cat_4" || nameLower.includes("carpent") || descLower.includes("door")) return "డోర్ లాక్ బాగు చేయడం, క్యాబినెట్ రిపేర్లు, బెడ్ అసెంబ్లీ, చెక్క ఫర్నిచర్ పనులు";
+    if (cat.id === "cat_5" || nameLower.includes("paint") || descLower.includes("wall")) return "గోడల పెయింటింగ్, వాటర్‌ప్రూఫ్ ప్యాచింగ్, ఎనామిల్ కోటింగ్, ఇంటీరియర్ టచ్‌అప్‌లు";
+    if (cat.id === "cat_6" || nameLower.includes("clean") || descLower.includes("cleaning")) return "డీప్ బాత్‌రూమ్ క్లీనింగ్, కిచెన్ గ్రీస్ తొలగింపు, సోఫా & కార్పెట్ క్లీనింగ్";
+    if (nameLower.includes("sewage") || descLower.includes("sewage")) return "పైప్ బ్లాకేజ్ తొలగింపు, డ్రెయిన్ క్లీనింగ్ మరియు సీవేజ్ క్లియరెన్స్ సేవలు";
+    if (nameLower.includes("event") || descLower.includes("event")) return "వివాహాలు, పుట్టినరోజులు మరియు ప్రత్యేక వేడుకల కోసం ఈవెంట్ మేనేజ్‌మెంట్";
+    if (nameLower.includes("shifting") || descLower.includes("shifting")) return "స్థానిక మరియు సుదూర ప్రాంతాలకు ఇల్లు మారే (షిఫ్టింగ్) ప్రొఫెషనల్ సేవలు";
+    if (nameLower.includes("handyman") || descLower.includes("handyman")) return "ఇంటి మరమ్మతులు, కర్టెన్ రాడ్లు, టీవీ ఫిట్టింగ్ మరియు సాధారణ పనుల నిపుణులు";
   }
   return cat.description;
 }
@@ -118,38 +133,42 @@ function getLocalizedSubcategoryName(rawName: string, lang: Language): string {
   if (n.includes("sofa") || n.includes("mattress")) return "సోఫా & మ్యాట్రెస్ క్లీనింగ్";
   if (n.includes("full home deep") || n.includes("sanitization")) return "పూర్తి ఇంటి క్లీనింగ్ & శానిటైజేషన్";
 
-  if (n.includes("ac general") || n.includes("ac service")) return "ఏసీ జనరల్ డీప్ క్లీనింగ్";
-  if (n.includes("ac gas") || n.includes("gas charging")) return "ఏసీ గ్యాస్ ఛార్జింగ్ & లీక్ చెక్";
+  if (n.includes("ac general") || n.includes("ac service")) return "ఏసీ జనరల్ సర్వీస్";
+  if (n.includes("ac gas") || n.includes("gas charging")) return "ఏసీ గ్యాస్ ఛార్జింగ్";
   if (n.includes("ac installation") || n.includes("ac install")) return "ఏసీ ఇన్స్టాలేషన్";
   if (n.includes("washing machine")) return "వాషింగ్ మెషిన్ రిపేర్";
   if (n.includes("geyser")) return "గీజర్ రిపేర్ & సర్వీస్";
 
-  if (n.includes("door lock") || n.includes("latch")) return "డోర్ లాక్ & లాచ్ రిపేర్";
+  if (n.includes("door lock") || n.includes("latch")) return "డోర్ లాక్ ఇన్స్టాలేషన్";
   if (n.includes("door installation") || n.includes("door install")) return "డోర్ ఇన్స్టాలేషన్";
-  if (n.includes("door alignment") || n.includes("door repair")) return "డోర్ అలైన్‌మెంట్ & రిపేర్";
+  if (n.includes("door alignment") || n.includes("door repair")) return "డోర్ అలైన్‌మెంట్ / రిపేర్";
   if (n.includes("cabinet") || n.includes("drawer") || n.includes("hinge")) return "క్యాబినెట్ & డ్రాయర్ రిపేర్";
   if (n.includes("bed") || n.includes("furniture assembly")) return "బెడ్ & ఫర్నిచర్ అసెంబ్లీ";
   if (n.includes("wooden door")) return "చెక్క డోర్ ఫిట్టింగ్ పనులు";
 
-  if (n.includes("wall patch") || n.includes("wall putty") || n.includes("waterproofing")) return "వాల్ పుట్టీ & వాటర్‌ప్రూఫింగ్";
-  if (n.includes("single room") || n.includes("interior emulsion") || n.includes("interior painting")) return "ఇంటీరియర్ రూమ్ పెయింటింగ్";
+  if (n.includes("wall patch") || n.includes("wall putty") || n.includes("waterproofing")) return "వాల్ పుట్టీ అప్లికేషన్";
+  if (n.includes("single room") || n.includes("interior emulsion") || n.includes("interior painting")) return "ఇంటీరియర్ ఎమల్షన్ పెయింటింగ్";
   if (n.includes("interior wall touchup")) return "ఇంటీరియర్ వాల్ టచ్‌అప్‌లు";
   if (n.includes("exterior painting") || n.includes("exterior paint")) return "ఎక్స్‌టీరియర్ పెయింటింగ్";
   if (n.includes("paint inspection") || n.includes("house paint")) return "ఇంటి పెయింట్ తనిఖీ సేవ";
 
-  if (n.includes("switchboard") || n.includes("switch replacement") || n.includes("socket")) return "స్విచ్ బోర్డు & సాకెట్ ఫిక్సింగ్";
-  if (n.includes("ceiling fan") || n.includes("fan installation") || n.includes("fan repair")) return "ఫ్యాన్ రిపేర్ & ఇన్స్టాలేషన్";
+  if (n.includes("switchboard") || n.includes("switch replacement") || n.includes("switch")) return "స్విచ్ మార్పిడి";
+  if (n.includes("socket")) return "సాకెట్ ఇన్స్టాలేషన్";
+  if (n.includes("ceiling fan") || n.includes("fan installation") || n.includes("fan")) return "ఫ్యాన్ ఇన్స్టాలేషన్";
   if (n.includes("mcb") || n.includes("fuse")) return "MCB & ఫ్యూజ్ మార్పిడి";
   if (n.includes("light fitting") || n.includes("chandelier")) return "లైటింగ్ & ఫిట్టింగ్ పనులు";
 
-  if (n.includes("tap leakage") || n.includes("tap / faucet") || n.includes("faucet")) return "టాప్/ఫాసెట్ రిపేర్ & ఫిక్సింగ్";
+  if (n.includes("tap / faucet") || n.includes("tap/faucet") || n.includes("tap leakage") || n.includes("faucet")) return "టాప్/ఫాసెట్ ఇన్స్టాలేషన్";
+  if (n.includes("wash basin") || n.includes("washbasin")) return "వాష్ బేసిన్ ఇన్స్టాలేషన్";
+  if (n.includes("sink installation") || n.includes("sink")) return "సింక్ ఇన్స్టాలేషన్";
   if (n.includes("pipe fitting") || n.includes("pipe replacement")) return "పైప్ ఫిట్టింగ్ & మార్పిడి";
   if (n.includes("blockage removal") || n.includes("drainage")) return "బ్లాకేజ్ తొలగింపు & డ్రైనేజీ";
-  if (n.includes("toilet") || n.includes("washbasin") || n.includes("wash basin") || n.includes("sink")) return "టాయిలెట్, బేసిన్ & సింక్ ఇన్స్టాలేషన్";
+  if (n.includes("toilet")) return "టాయిలెట్ ఇన్స్టాలేషన్ & రిపేర్";
 
   if (n.includes("curtain rod")) return "కర్టెన్ రాడ్ ఇన్స్టాలేషన్";
   if (n.includes("tv wall") || n.includes("tv mounting")) return "టీవీ వాల్ మౌంటింగ్";
-  if (n.includes("mirror installation") || n.includes("mirror")) return "మిర్రర్ ఫిక్సింగ్";
+  if (n.includes("mirror installation") || n.includes("mirror")) return "మిర్రర్ ఇన్స్టాలేషన్";
+  if (n.includes("general repair") || n.includes("inspection")) return "జనరల్ రిపేర్లు / తనిఖీ";
 
   return rawName;
 }
@@ -241,6 +260,7 @@ export default function CustomerPortal({
   onLanguageChange = () => {},
   onLogout,
 }: CustomerPortalProps) {
+  const isTe = currentLanguage === "te";
   // --- STATE ---
   const [privacyAccepted, setPrivacyAccepted] = useState<boolean>(() => {
     try {
@@ -327,25 +347,6 @@ export default function CustomerPortal({
   const [selectedCats, setSelectedCats] = useState<Category[]>([]);
   const [selectedSubcategories, setSelectedSubcategories] = useState<Record<string, SubCategoryItem[]>>({});
 
-  const pushCustomerNavState = (modalName?: string, sectionName?: "book" | "account") => {
-    const sec = sectionName || customerPortalTab;
-    try {
-      const currentState = window.history.state;
-      if (
-        currentState &&
-        currentState.fixHomeTab === "customer" &&
-        currentState.section === sec &&
-        currentState.modal === modalName
-      ) {
-        return;
-      }
-      const hashName = modalName ? `#modal-${modalName}` : `#customer-${sec}`;
-      window.history.pushState({ fixHomeTab: "customer", section: sec, modal: modalName }, "", hashName);
-      notifyNativeBackState();
-      logNav("CustomerPortal", "pushCustomerNavState", { modalName, sectionName: sec, hashName });
-    } catch (e) {}
-  };
-
   const toggleCategorySelection = (cat: Category) => {
     const isCurrentlySelected = selectedCats.some((c) => c.id === cat.id);
     if (isCurrentlySelected) {
@@ -356,13 +357,7 @@ export default function CustomerPortal({
         delete copy[cat.id];
         return copy;
       });
-      if (remaining.length === 0 && window.history.state?.modal === "category") {
-        window.history.back();
-      }
     } else {
-      if (selectedCats.length === 0) {
-        pushCustomerNavState("category");
-      }
       setSelectedCats((prev) => [...prev, cat]);
       setSelectedSubcategories((prev) => ({
         ...prev,
@@ -598,6 +593,24 @@ export default function CustomerPortal({
   const [viewingTracker, setViewingTracker] = useState<boolean>(false);
   const [refreshingTracker, setRefreshingTracker] = useState<boolean>(false);
 
+  // Specialist Direct Call Helpers
+  const getWorkerDisplayPhone = (booking?: Booking | null) => {
+    return booking?.assigned_worker_phone || "+91 99667 47473";
+  };
+
+  const getWorkerTelUri = (booking?: Booking | null) => {
+    const raw = getWorkerDisplayPhone(booking);
+    const cleaned = raw.replace(/[^\d+]/g, "");
+    if (cleaned.startsWith("+")) return `tel:${cleaned}`;
+    if (cleaned.length === 10) return `tel:+91${cleaned}`;
+    return `tel:${cleaned}`;
+  };
+
+  const triggerCallWorker = (e?: React.MouseEvent, booking?: Booking | null) => {
+    const rawNumber = getWorkerDisplayPhone(booking || activeBooking);
+    dialNativePhoneNumber(rawNumber);
+  };
+
   // Touch Pull to Refresh Feature States
   const [pullDistance, setPullDistance] = useState<number>(0);
   const [isPullRefreshing, setIsPullRefreshing] = useState<boolean>(false);
@@ -770,7 +783,7 @@ export default function CustomerPortal({
     }
 
     // Check for existing active booking in localStorage
-    const savedBookingId = localStorage.getItem("fix_home_active_booking_id");
+    const savedBookingId = secureStorage.getItem<string>("fix_home_active_booking_id") || localStorage.getItem("fix_home_active_booking_id");
     if (savedBookingId) {
       fetchBookingStatus(savedBookingId, true);
     }
@@ -804,6 +817,9 @@ export default function CustomerPortal({
     };
 
     const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "fix_home_cached_categories" || !e.key) {
+        fetchCategories();
+      }
       if (e.key === "fix_home_cached_offers" || !e.key) {
         fetchOffers();
       }
@@ -812,75 +828,159 @@ export default function CustomerPortal({
     window.addEventListener("fix_home_status_updated", customEventListener);
     window.addEventListener("storage", handleStorageChange);
 
+    // Subscribe to Firestore real-time changes across devices
+    const unsubCats = subscribeCategoriesRealtime((realtimeCategories) => {
+      if (Array.isArray(realtimeCategories) && realtimeCategories.length > 0) {
+        setCategories(realtimeCategories);
+        setLoadingCats(false);
+        try {
+          localStorage.setItem("fix_home_cached_categories", JSON.stringify(realtimeCategories));
+        } catch (e) {}
+      }
+    });
+
+    const unsubOffers = subscribeOffersRealtime((realtimeOffers) => {
+      if (Array.isArray(realtimeOffers)) {
+        const active = realtimeOffers.filter((o: Offer) => o.is_active !== false);
+        setOffers(active);
+        try {
+          localStorage.setItem("fix_home_cached_offers", JSON.stringify(active));
+        } catch (e) {}
+      }
+    });
+
+    const unsubSignal = subscribeGlobalSignalRealtime(() => {
+      fetchCategories();
+      fetchOffers();
+      const mobile = userMobile || localStorage.getItem("fix_home_user_mobile") || "";
+      if (mobile) {
+        fetchUserHistory(mobile);
+      }
+      const savedBookingId = secureStorage.getItem<string>("fix_home_active_booking_id") || localStorage.getItem("fix_home_active_booking_id");
+      if (savedBookingId) {
+        fetchBookingStatus(savedBookingId, false);
+      }
+    });
+
     return () => {
       if (bc) bc.close();
       window.removeEventListener("fix_home_status_updated", customEventListener);
       window.removeEventListener("storage", handleStorageChange);
+      unsubCats();
+      unsubOffers();
+      unsubSignal();
     };
   }, []);
 
+  // Navigation state ref to ensure synchronous, closure-safe access during hardware & gesture back events
+  const navStateRef = useRef({
+    gpsModalOpen,
+    historyModalOpen,
+    viewingTracker,
+    viewingFullPrivacy,
+    bookingStep,
+    customerPortalTab,
+    isEditingProfile,
+  });
+
+  useEffect(() => {
+    navStateRef.current = {
+      gpsModalOpen,
+      historyModalOpen,
+      viewingTracker,
+      viewingFullPrivacy,
+      bookingStep,
+      customerPortalTab,
+      isEditingProfile,
+    };
+  });
+
   // Back-Stack Navigation Controller (Popping modals and sub-views on device/browser back button)
   useEffect(() => {
-    const syncFromHistoryState = () => {
-      const st = window.history.state || {};
-      logNav("CustomerPortal", "syncFromHistoryState", {
-        st,
-        currentTab: customerPortalTab,
-        currentBookingStep: bookingStep,
-      });
-      if (st.fixHomeTab === "customer" || !st.fixHomeTab || st.isRootGuard) {
-        if (st.section === "account") {
-          setCustomerPortalTab("account");
-        } else {
-          setCustomerPortalTab("book");
-        }
+    // Reset any armed exit timer whenever user lands on or returns to the clean Services root
+    if (
+      customerPortalTab === "book" &&
+      bookingStep === "services" &&
+      !viewingTracker &&
+      !gpsModalOpen &&
+      !historyModalOpen &&
+      !isEditingProfile &&
+      !viewingFullPrivacy
+    ) {
+      (window as any).__resetExitTimer?.();
+    }
+  }, [
+    customerPortalTab,
+    bookingStep,
+    viewingTracker,
+    gpsModalOpen,
+    historyModalOpen,
+    isEditingProfile,
+    viewingFullPrivacy,
+  ]);
 
-        setGpsModalOpen(st.modal === "gps");
-        setHistoryModalOpen(st.modal === "history");
-        setViewingTracker(st.modal === "tracker");
-        setViewingFullPrivacy(st.modal === "privacy");
+  useEffect(() => {
+    // Register active back action handler for direct hardware back navigation
+    (window as any).__customerPortalBack = () => {
+      const current = navStateRef.current;
+      logNav("CustomerPortal", "__customerPortalBack invoked", current);
 
-        if (st.modal === "details") {
-          setBookingStep("details");
-        } else {
-          setBookingStep("services");
-        }
-
-        if (st.modal !== "category" && st.modal !== "details") {
-          setSelectedCats([]);
-          setSelectedSubcategories({});
-        }
+      // 1. Modals (close any open modal)
+      if (current.gpsModalOpen) {
+        setGpsModalOpen(false);
+        return true;
       }
-      notifyNativeBackState();
+      if (current.historyModalOpen) {
+        setHistoryModalOpen(false);
+        return true;
+      }
+      if (current.isEditingProfile) {
+        setIsEditingProfile(false);
+        return true;
+      }
+      if (current.viewingTracker) {
+        setViewingTracker(false);
+        setBookingStep("services");
+        setSelectedCats([]);
+        setSelectedSubcategories({});
+        return true;
+      }
+      if (current.viewingFullPrivacy) {
+        setViewingFullPrivacy(false);
+        return true;
+      }
+
+      // 2. Booking Step (Step 2 Details -> Step 1 Services)
+      if (current.bookingStep === "details") {
+        setBookingStep("services");
+        return true;
+      }
+
+      // 3. Tab (Account -> Book Services)
+      if (current.customerPortalTab === "account") {
+        setCustomerPortalTab("book");
+        setBookingStep("services");
+        return true;
+      }
+
+      // 4. At Root Services Page (let root 2-tap exit handler handle it)
+      return false;
     };
 
-    syncFromHistoryState();
-
-    const handlePopState = (e: PopStateEvent | HashChangeEvent) => {
-      logNav("CustomerPortal", "popstate/hashchange listener fired", {
-        state: window.history.state,
-      });
-      syncFromHistoryState();
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    window.addEventListener("hashchange", handlePopState);
     return () => {
-      window.removeEventListener("popstate", handlePopState);
-      window.removeEventListener("hashchange", handlePopState);
+      delete (window as any).__customerPortalBack;
     };
   }, []);
 
   const fetchOffers = async () => {
     if (offers.length === 0) setLoadingOffers(true);
     try {
-      const res = await fetch("/api/offers");
+      const res = await fetch(`/api/offers?t=${Date.now()}`);
       const contentType = res.headers.get("content-type");
       if (res.ok && contentType && contentType.includes("application/json")) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          const active = data.filter((o: Offer) => o.is_active);
+          const active = data.filter((o: Offer) => o.is_active !== false);
           setOffers(active);
           try {
             localStorage.setItem("fix_home_cached_offers", JSON.stringify(active));
@@ -888,7 +988,7 @@ export default function CustomerPortal({
         }
       }
     } catch (err) {
-      console.error("Error fetching offers:", err);
+      console.warn("Offers fetch notice:", err);
     } finally {
       setLoadingOffers(false);
     }
@@ -898,15 +998,15 @@ export default function CustomerPortal({
     if (!mobile || !mobile.trim()) return;
     setLoadingHistory(true);
     const clean = mobile.trim();
+    const cleanDigits = clean.replace(/\D/g, "");
 
-    // Retrieve offline local bookings saved in browser storage
+    // 1. Retrieve offline local bookings saved in browser storage
     let localBookings: Booking[] = [];
     try {
       const raw = localStorage.getItem("fix_home_all_bookings");
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          const cleanDigits = clean.replace(/\D/g, "");
           localBookings = parsed.filter((b: any) => {
             const bPhone = (b.mobile_number || "").replace(/\D/g, "");
             return bPhone.length > 0 && (bPhone.includes(cleanDigits) || cleanDigits.includes(bPhone));
@@ -915,27 +1015,40 @@ export default function CustomerPortal({
       }
     } catch (e) {}
 
+    // Initialize map with local bookings
+    const mergedMap = new Map<string, Booking>();
+    localBookings.forEach(b => {
+      if (b && b.request_id) mergedMap.set(b.request_id, b);
+    });
+
+    // 2. Try fetching from backend API
     try {
       const res = await fetch(`/api/bookings/user/${encodeURIComponent(clean)}`);
       if (res.ok) {
         const data = await res.json();
         const serverBookings: Booking[] = data.bookings || [];
-        // Merge without duplicates based on request_id
-        const mergedMap = new Map<string, Booking>();
-        [...serverBookings, ...localBookings].forEach(b => {
+        serverBookings.forEach(b => {
           if (b && b.request_id) mergedMap.set(b.request_id, b);
         });
-        const combined = Array.from(mergedMap.values());
-        setUserHistory(combined);
-      } else {
-        setUserHistory(localBookings);
       }
-    } catch (err) {
-      console.error("Error fetching user history:", err);
-      setUserHistory(localBookings);
-    } finally {
-      setLoadingHistory(false);
+    } catch (apiErr) {
+      // Backend is unreachable or offline, fallback smoothly
     }
+
+    // 3. Fallback / supplementary query to Firestore
+    try {
+      const firestoreBookings = await fetchUserBookingsFromFirestore(clean);
+      firestoreBookings.forEach(b => {
+        if (b && b.request_id) mergedMap.set(b.request_id, b);
+      });
+    } catch (fsErr) {}
+
+    const combined = Array.from(mergedMap.values()).sort((a, b) => {
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    });
+
+    setUserHistory(combined);
+    setLoadingHistory(false);
   };
 
   const handleUserMobileLogin = async (e: React.FormEvent) => {
@@ -1045,20 +1158,29 @@ export default function CustomerPortal({
     }
   };
 
-  // Poll active booking every 4 seconds when tracker is present
+  // Subscribe to real-time active booking updates from Firestore
   useEffect(() => {
-    if (!activeBooking) return;
+    const bookingId = activeBooking?.request_id || secureStorage.getItem<string>("fix_home_active_booking_id") || localStorage.getItem("fix_home_active_booking_id");
+    if (!bookingId) return;
+
+    const unsubBooking = subscribeBookingRealtime(bookingId, (updatedBooking) => {
+      if (dismissedBookingIdsRef.current.has(bookingId)) return;
+      setActiveBooking(updatedBooking);
+    });
 
     const interval = setInterval(() => {
-      fetchBookingStatus(activeBooking.request_id, false);
-    }, 4000);
+      fetchBookingStatus(bookingId, false);
+    }, 5000);
 
-    return () => clearInterval(interval);
+    return () => {
+      unsubBooking();
+      clearInterval(interval);
+    };
   }, [activeBooking?.request_id]);
 
   const fetchCategories = async () => {
     try {
-      const res = await fetch("/api/categories");
+      const res = await fetch(`/api/categories?t=${Date.now()}`);
       const contentType = res.headers.get("content-type");
       if (res.ok && contentType && contentType.includes("application/json")) {
         const data = await res.json();
@@ -1068,11 +1190,11 @@ export default function CustomerPortal({
           localStorage.setItem("fix_home_cached_categories", JSON.stringify(catList));
         } catch (e) {}
       } else {
-        setCategories(DEFAULT_CATEGORIES);
+        setCategories((prev) => (prev && prev.length > 0 ? prev : DEFAULT_CATEGORIES));
       }
     } catch (err) {
-      console.error("Error fetching categories:", err);
-      setCategories(DEFAULT_CATEGORIES);
+      console.warn("Categories fetch notice:", err);
+      setCategories((prev) => (prev && prev.length > 0 ? prev : DEFAULT_CATEGORIES));
     } finally {
       setLoadingCats(false);
     }
@@ -1094,6 +1216,7 @@ export default function CustomerPortal({
         }
       } else if (res.status === 404) {
         // If expired or not found, clear localStorage
+        secureStorage.removeItem("fix_home_active_booking_id");
         localStorage.removeItem("fix_home_active_booking_id");
         setActiveBooking(null);
         setViewingTracker(false);
@@ -1396,65 +1519,80 @@ export default function CustomerPortal({
       const data = await res.json();
 
       if (res.ok && data.success) {
-        // Save request ID to localStorage for persistent tracking
+        // Save request ID securely for persistent tracking
+        secureStorage.setItem("fix_home_active_booking_id", data.booking.request_id);
         localStorage.setItem("fix_home_active_booking_id", data.booking.request_id);
 
-        // Sync booking document to Firestore collection "bookings" for real-time admin listening
-        try {
-          await setDoc(doc(db, "bookings", data.booking.request_id), {
-            ...data.booking,
-            createdAtFirestore: new Date().toISOString()
-          });
-        } catch (e) {
-          console.warn("Firestore booking sync error:", e);
-        }
-
-        // Backup booking locally so details are never lost even across admin logouts or server restarts
-        try {
-          const existingRaw = localStorage.getItem("fix_home_all_bookings");
-          const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
-          const updated = [data.booking, ...existing.filter((b: any) => b.request_id !== data.booking.request_id)];
-          localStorage.setItem("fix_home_all_bookings", JSON.stringify(updated));
-        } catch (e) {
-          console.error("Local storage sync error:", e);
-        }
-
-        // Dispatch live event, BroadcastChannel & Mobile Push Notification to notify Admin on mobile
-        window.dispatchEvent(new CustomEvent("fix_home_new_booking", { detail: data.booking }));
-        try {
-          if (typeof BroadcastChannel !== "undefined") {
-            const bc = new BroadcastChannel("fix_home_channel");
-            bc.postMessage({ type: "NEW_BOOKING", booking: data.booking });
-            bc.close();
-          }
-        } catch (e) {}
-
-        // Send Mobile Push Notification directly to Admin device
-        triggerMobilePushNotification(
-          "🚨 NEW SERVICE BOOKING RECEIVED!",
-          `Service: ${data.booking.service_type}\nMobile: ${data.booking.mobile_number || 'Customer'}\nAddress: ${data.booking.address || 'Address provided'}`,
-          "admin-booking-" + data.booking.request_id
-        );
-
-        sendFCMPushNotification({
-          targetRole: "admin",
-          title: "🚨 NEW SERVICE BOOKING RECEIVED!",
-          body: `Service: ${data.booking.service_type} | Mobile: ${data.booking.mobile_number || 'Customer'}`,
-          data: { bookingId: data.booking.request_id, type: "admin_alert" }
-        });
-
+        // INSTANT UI TRANSITION - Update states immediately so user sees Live Tracker without lag
         setActiveBooking(data.booking);
-        pushCustomerNavState("tracker");
         setViewingTracker(true);
         setBookingStep("services");
+        setSelectedCats([]);
+        setSelectedSubcategories({});
 
-        // Clear forms
+        // Clear forms immediately
         setPhone("");
         setAddress("");
         setLandmark("");
         setNotes("");
         setCoords(null);
         setGpsPermissionGranted(null);
+        setIsSubmitting(false);
+
+        // NON-BLOCKING BACKGROUND TASKS (Firestore sync, LocalStorage backup, Push Notifications)
+        setTimeout(() => {
+          // Sync sanitized booking document to Firestore collection "bookings" for real-time admin listening
+          try {
+            const sanitizedDoc = {
+              ...data.booking,
+              customer_name: sanitizeNameInput(data.booking.customer_name || ""),
+              mobile_number: String(data.booking.mobile_number || "").replace(/\D/g, "").substring(0, 10),
+              createdAtFirestore: new Date().toISOString()
+            };
+            setDoc(doc(db, "bookings", data.booking.request_id), sanitizedDoc).catch((e) => {
+              console.warn("Firestore booking sync background error:", e);
+            });
+          } catch (e) {}
+
+          // Backup booking locally so details are never lost even across admin logouts or server restarts
+          try {
+            const existingRaw = localStorage.getItem("fix_home_all_bookings");
+            const existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
+            const updated = [data.booking, ...existing.filter((b: any) => b.request_id !== data.booking.request_id)];
+            localStorage.setItem("fix_home_all_bookings", JSON.stringify(updated));
+          } catch (e) {
+            console.error("Local storage sync error:", e);
+          }
+
+          // Dispatch live event, BroadcastChannel & Mobile Push Notification to notify Admin on mobile
+          window.dispatchEvent(new CustomEvent("fix_home_new_booking", { detail: data.booking }));
+          try {
+            if (typeof BroadcastChannel !== "undefined") {
+              const bc = new BroadcastChannel("fix_home_channel");
+              bc.postMessage({ type: "NEW_BOOKING", booking: data.booking });
+              bc.close();
+            }
+          } catch (e) {}
+
+          // Send Mobile Push Notification directly to Admin device
+          try {
+            triggerMobilePushNotification(
+              "🚨 NEW SERVICE BOOKING RECEIVED!",
+              `Service: ${data.booking.service_type}\nMobile: ${data.booking.mobile_number || 'Customer'}\nAddress: ${data.booking.address || 'Address provided'}`,
+              "admin-booking-" + data.booking.request_id
+            );
+          } catch (e) {}
+
+          try {
+            sendFCMPushNotification({
+              targetRole: "admin",
+              title: "🚨 NEW SERVICE BOOKING RECEIVED!",
+              body: `Service: ${data.booking.service_type} | Mobile: ${data.booking.mobile_number || 'Customer'}`,
+              data: { bookingId: data.booking.request_id, type: "admin_alert" }
+            });
+          } catch (e) {}
+        }, 0);
+        return;
       } else {
         let errorMsg = data.error || "Failed to submit booking request. Please check your inputs.";
         if (errorMsg.includes("Admin authorization") || errorMsg.includes("Access denied")) {
@@ -1477,8 +1615,10 @@ export default function CustomerPortal({
               } catch (e) {}
               window.dispatchEvent(new CustomEvent("fix_home_new_booking", { detail: retryData.booking }));
               setActiveBooking(retryData.booking);
-              pushCustomerNavState("tracker");
               setViewingTracker(true);
+              setBookingStep("services");
+              setSelectedCats([]);
+              setSelectedSubcategories({});
               setPhone("");
               setAddress("");
               setLandmark("");
@@ -1505,30 +1645,20 @@ export default function CustomerPortal({
     }
     localStorage.removeItem("fix_home_active_booking_id");
     setActiveBooking(null);
-    if (window.history.state?.modal === "tracker") {
-      window.history.back();
-    } else {
-      setViewingTracker(false);
-    }
+    setViewingTracker(false);
     setSelectedCats([]);
     setBookingStep("services");
   };
 
   const renderFooter = () => {
     return (
-      <footer className="fixed bottom-0 left-0 right-0 z-50 bg-slate-900 text-white border-t border-slate-800 shadow-2xl px-4 py-2.5">
-        <div className="max-w-md w-full mx-auto flex items-center justify-around">
+      <footer className="fixed bottom-0 left-0 right-0 z-50 bg-slate-900 text-white border-t border-slate-800 shadow-2xl px-4 pt-2 safe-bottom-nav">
+        <div className="max-w-2xl w-full mx-auto flex items-center justify-around">
           <button
             onClick={() => {
-              logNav("CustomerPortal", "Clicked Book Service footer tab", { currentTab: customerPortalTab, historyState: window.history.state });
-              try {
-                window.history.replaceState({ fixHomeTab: "customer", section: "book", isRoot: true }, "", "#customer-book");
-                notifyNativeBackState();
-              } catch (e) {}
+              logNav("CustomerPortal", "Clicked Book Service footer tab", { currentTab: customerPortalTab });
               setCustomerPortalTab("book");
               setBookingStep("services");
-              setSelectedCats([]);
-              setSelectedSubcategories({});
               setViewingTracker(false);
               setViewingFullPrivacy(false);
               setHistoryModalOpen(false);
@@ -1546,15 +1676,12 @@ export default function CustomerPortal({
 
           <button
             onClick={() => {
-              if (customerPortalTab !== "account") {
-                pushCustomerNavState(undefined, "account");
-                setCustomerPortalTab("account");
-              }
-              setBookingStep("services");
-              setSelectedCats([]);
-              setSelectedSubcategories({});
+              logNav("CustomerPortal", "Clicked Account footer tab", { currentTab: customerPortalTab });
+              setCustomerPortalTab("account");
               setViewingTracker(false);
               setViewingFullPrivacy(false);
+              setHistoryModalOpen(false);
+              setGpsModalOpen(false);
             }}
             className={`flex flex-col items-center gap-1 py-1 px-6 rounded-xl transition-all cursor-pointer ${
               customerPortalTab === "account" && !viewingTracker
@@ -1681,12 +1808,11 @@ export default function CustomerPortal({
             <div className="flex items-center gap-3">
               <button
                 onClick={() => {
-                  logNav("CustomerPortal", "Clicked Tracker view back button", { historyState: window.history.state });
-                  if (window.history.state?.modal === "tracker") {
-                    window.history.back();
-                  } else {
-                    setViewingTracker(false);
-                  }
+                  logNav("CustomerPortal", "Clicked Tracker view back button");
+                  setViewingTracker(false);
+                  setBookingStep("services");
+                  setSelectedCats([]);
+                  setSelectedSubcategories({});
                 }}
                 className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors"
                 title={isTe ? "సేవలకు తిరిగి వెళ్లండి" : "Back to services"}
@@ -1769,23 +1895,24 @@ export default function CustomerPortal({
                 <div className="flex-1 min-w-0">
                   <h4 className="text-sm font-bold text-slate-900">{activeBooking.assigned_worker_name}</h4>
                   <p className="text-xs text-slate-600 font-medium">{activeBooking.service_type} Expert</p>
-                  {activeBooking.assigned_worker_phone && (
-                    <p className="text-xs text-[#65a30d] font-bold mt-0.5 flex items-center gap-1">
-                      <Phone size={12} />
-                      <span>{activeBooking.assigned_worker_phone}</span>
-                    </p>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => triggerCallWorker(undefined, activeBooking)}
+                    className="text-xs text-[#65a30d] font-bold mt-0.5 inline-flex items-center gap-1 hover:underline cursor-pointer bg-transparent border-none p-0 text-left"
+                  >
+                    <Phone size={12} />
+                    <span>{getWorkerDisplayPhone(activeBooking)}</span>
+                  </button>
                 </div>
 
-                {activeBooking.assigned_worker_phone && (
-                  <a
-                    href={`tel:${activeBooking.assigned_worker_phone}`}
-                    className="px-3 py-2 bg-[#65a30d] hover:bg-[#52840a] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm active:scale-95 transition-all shrink-0"
-                  >
-                    <Phone size={14} />
-                    <span>{isTe ? "కాల్ చేయండి" : "Call"}</span>
-                  </a>
-                )}
+                <button
+                  type="button"
+                  onClick={() => triggerCallWorker(undefined, activeBooking)}
+                  className="px-3.5 py-2.5 bg-[#65a30d] hover:bg-[#52840a] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-md active:scale-95 transition-all shrink-0 cursor-pointer border-none"
+                >
+                  <Phone size={15} />
+                  <span>{isTe ? "కాల్ చేయండి" : "Call"}</span>
+                </button>
               </div>
             </div>
           )}
@@ -1909,12 +2036,11 @@ export default function CustomerPortal({
             <div className="flex gap-2">
               <button
                 onClick={() => {
-                  logNav("CustomerPortal", "Clicked View Service List button in tracker view", { historyState: window.history.state });
-                  if (window.history.state?.modal === "tracker") {
-                    window.history.back();
-                  } else {
-                    setViewingTracker(false);
-                  }
+                  logNav("CustomerPortal", "Clicked View Service List button in tracker view");
+                  setViewingTracker(false);
+                  setBookingStep("services");
+                  setSelectedCats([]);
+                  setSelectedSubcategories({});
                 }}
                 className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold text-xs transition-all"
               >
@@ -1953,6 +2079,18 @@ export default function CustomerPortal({
         {/* PORTAL TOP BRAND HEADER */}
         <div className="bg-slate-900 text-white px-4 sm:px-5 py-3 flex items-center justify-between border-b border-slate-800 shrink-0 flex-wrap gap-2">
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                logNav("CustomerPortal", "Clicked Account view back button");
+                setCustomerPortalTab("book");
+                setBookingStep("services");
+              }}
+              className="p-1.5 -ml-1 text-slate-300 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center"
+              title="Back to Services"
+            >
+              <ArrowLeft size={18} />
+            </button>
             <div className="w-7 h-7 rounded-lg overflow-hidden border border-slate-700 shrink-0 bg-slate-900">
               <img src={FIXHOME_LOGO} alt="FixHome Logo" className="w-full h-full object-cover" />
             </div>
@@ -1968,7 +2106,7 @@ export default function CustomerPortal({
         </div>
 
         {/* ACCOUNT HUB MAIN BODY */}
-        <div className="p-4 sm:p-6 flex-1 overflow-y-auto space-y-6 max-w-4xl mx-auto w-full text-left">
+        <div className="p-3.5 sm:p-5 flex-1 overflow-y-auto space-y-5 max-w-2xl mx-auto w-full text-left">
           
           {/* USER PROFILE & CREDENTIALS CARD */}
           <div className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-2xs space-y-4">
@@ -2001,7 +2139,6 @@ export default function CustomerPortal({
                   <button
                     type="button"
                     onClick={() => {
-                      pushCustomerNavState("history");
                       setHistoryModalOpen(true);
                     }}
                     className="px-3 py-1.5 bg-[#65A30D] text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
@@ -2059,23 +2196,28 @@ export default function CustomerPortal({
                   </div>
                 </div>
 
-                <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 flex items-center justify-between flex-wrap gap-2">
-                  <div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                      {t("selectLanguage", currentLanguage)}
-                    </span>
-                    <span className="text-xs font-extrabold text-[#65A30D] mt-0.5 block">
-                      {currentLanguage === "te" ? "తెలుగు (Telugu)" : "English"}
-                    </span>
+                <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-[#65A30D]/15 text-[#65A30D] flex items-center justify-center shrink-0">
+                      <Languages size={18} />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                        {t("selectLanguage", currentLanguage)} / భాష ఎంచుకోండి
+                      </span>
+                      <span className="text-xs font-extrabold text-slate-800 mt-0.5 block">
+                        {currentLanguage === "te" ? "తెలుగు (Telugu)" : "English"}
+                      </span>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingProfile(true)}
-                    className="px-4 py-2 bg-[#65A30D] hover:bg-[#52840a] text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
-                  >
-                    <Pencil size={14} />
-                    <span>{isTe ? "ప్రొఫైల్ వివరాలను సవరించండి" : "Edit Profile Details"}</span>
-                  </button>
+                  <div className="w-full sm:w-auto sm:min-w-[240px] shrink-0">
+                    <LanguageSelector
+                      currentLanguage={currentLanguage}
+                      onLanguageChange={onLanguageChange}
+                      variant="pills"
+                      namePrefix="account_view_lang"
+                    />
+                  </div>
                 </div>
               </div>
             ) : (
@@ -2125,13 +2267,13 @@ export default function CustomerPortal({
                 </div>
 
                 {/* DEDICATED RADIO BUTTON LANGUAGE SELECTION BOX */}
-                <div className="sm:col-span-2 p-3.5 bg-white border border-slate-200/90 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
+                <div className="sm:col-span-2 p-3.5 bg-white border border-slate-200/90 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 min-w-0">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-8 h-8 rounded-xl bg-[#65A30D]/15 text-[#65A30D] flex items-center justify-center shrink-0">
                       <Languages size={18} />
                     </div>
-                    <div>
-                      <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider truncate">
                         {t("selectLanguage", currentLanguage)} / భాషను ఎంచుకోండి
                       </h4>
                       <p className="text-[11px] text-slate-500 font-medium">
@@ -2140,12 +2282,14 @@ export default function CustomerPortal({
                     </div>
                   </div>
 
-                  <LanguageSelector
-                    currentLanguage={currentLanguage}
-                    onLanguageChange={onLanguageChange}
-                    variant="pills"
-                    namePrefix="account_credentials_lang"
-                  />
+                  <div className="w-full sm:w-auto sm:min-w-[280px] shrink-0">
+                    <LanguageSelector
+                      currentLanguage={currentLanguage}
+                      onLanguageChange={onLanguageChange}
+                      variant="pills"
+                      namePrefix="account_credentials_lang"
+                    />
+                  </div>
                 </div>
 
                 <div className="sm:col-span-2 pt-2 flex items-center justify-end gap-2.5">
@@ -2194,7 +2338,6 @@ export default function CustomerPortal({
                 <button
                   type="button"
                   onClick={() => {
-                    pushCustomerNavState("history");
                     setHistoryModalOpen(true);
                   }}
                   className="px-3.5 py-1.5 bg-[#65A30D] text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
@@ -2274,7 +2417,6 @@ export default function CustomerPortal({
                 <button
                   type="button"
                   onClick={() => {
-                    pushCustomerNavState("history");
                     setHistoryModalOpen(true);
                   }}
                   className="px-3.5 py-1.5 bg-[#65A30D] hover:bg-[#52840a] text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
@@ -2327,7 +2469,6 @@ export default function CustomerPortal({
                 <button
                   type="button"
                   onClick={() => {
-                    pushCustomerNavState(undefined, "book");
                     setCustomerPortalTab("book");
                   }}
                   className="px-4 py-2 bg-[#65A30D] text-white rounded-xl text-xs font-bold mt-2 cursor-pointer shadow-xs"
@@ -2360,9 +2501,18 @@ export default function CustomerPortal({
                     </p>
 
                     {h.assigned_worker_name && (
-                      <div className="text-[11px] font-bold text-[#65A30D] flex items-center gap-1.5">
-                        <UserCheck size={13} />
-                        <span>{isTe ? "టెక్నీషియన్: " : "Specialist: "}{h.assigned_worker_name} ({h.assigned_worker_phone})</span>
+                      <div className="text-[11px] font-bold text-[#65A30D] flex items-center justify-between gap-1.5 flex-wrap pt-1">
+                        <div className="flex items-center gap-1.5">
+                          <UserCheck size={13} />
+                          <span>{isTe ? "టెక్నీషియన్: " : "Specialist: "}{h.assigned_worker_name}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => triggerCallWorker(undefined, h)}
+                          className="px-2 py-0.5 bg-[#65a30d] text-white text-[10px] font-bold rounded-lg flex items-center gap-1 hover:bg-[#52840a] cursor-pointer border-none"
+                        >
+                          <Phone size={10} /> {getWorkerDisplayPhone(h)}
+                        </button>
                       </div>
                     )}
 
@@ -2372,8 +2522,8 @@ export default function CustomerPortal({
                         type="button"
                         onClick={() => {
                           setActiveBooking(h);
-                          pushCustomerNavState("tracker", "book");
                           setViewingTracker(true);
+                          setBookingStep("services");
                           setCustomerPortalTab("book");
                         }}
                         className="text-[#65A30D] font-bold hover:underline cursor-pointer text-xs"
@@ -2399,33 +2549,20 @@ export default function CustomerPortal({
       <>
         <div className="flex-1 flex flex-col bg-white pb-16 relative" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
         {renderPullToRefreshHeader()}
-        {/* CUSTOMER PORTAL MAIN TOP BRAND HEADER */}
-        <div className="bg-slate-900 text-white px-4 sm:px-5 py-3 flex items-center justify-between border-b border-slate-800 shrink-0 flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg overflow-hidden border border-slate-700 shrink-0 bg-slate-900">
-              <img src={FIXHOME_LOGO} alt="FixHome Logo" className="w-full h-full object-cover" />
-            </div>
-            <span className="text-sm font-extrabold tracking-tight text-white">FixHome Services</span>
-          </div>
-          <div className="text-[10px] bg-slate-800 text-slate-300 font-bold px-2.5 py-1 rounded-xl border border-slate-700 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#65a30d] animate-pulse"></span>
-            <span>Live Dispatch Active</span>
-          </div>
-        </div>
 
         {/* Sub-Header */}
-        <div className="px-5 py-4 bg-white border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap shrink-0">
-          <div>
+        <div className="px-3.5 sm:px-5 py-3.5 bg-white border-b border-slate-100 flex items-center justify-between gap-2.5 flex-wrap shrink-0">
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="bg-[#65a30d]/10 text-[#65a30d] text-[9px] font-extrabold px-2 py-0.5 rounded-md uppercase">
                 Step 1 of 2
               </span>
-              <h1 className="text-lg font-bold text-[#1e293b] tracking-tight">{t("selectService", currentLanguage)}</h1>
+              <h1 className="text-base sm:text-lg font-bold text-[#1e293b] tracking-tight truncate">{t("selectService", currentLanguage)}</h1>
             </div>
-            <p className="text-[11px] text-slate-400 font-medium mt-0.5">{t("selectServiceSubtitle", currentLanguage)}</p>
+            <p className="text-[10px] sm:text-[11px] text-slate-400 font-medium mt-0.5 truncate">{t("selectServiceSubtitle", currentLanguage)}</p>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={handleManualRefresh}
@@ -2465,10 +2602,10 @@ export default function CustomerPortal({
             <div className="mt-3 sm:mt-4">
               <div className="px-3 sm:px-5 mb-1.5 flex items-center justify-between flex-wrap gap-1">
                 <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                  <Sparkles size={11} className="text-[#65a30d]" /> Exclusive Offers & Coupons
+                  <Sparkles size={11} className="text-[#65a30d]" /> {isTe ? "ప్రత్యేక ఆఫర్లు & కూపన్లు" : "Exclusive Offers & Coupons"}
                 </span>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-slate-400">Scroll →</span>
+                  <span className="text-[10px] font-bold text-slate-400">{isTe ? "స్క్రోల్ చేయండి →" : "Scroll →"}</span>
                 </div>
               </div>
 
@@ -2529,7 +2666,7 @@ export default function CustomerPortal({
                             onClick={() => handleRedeemCoupon(coupon)}
                             className="px-2.5 py-1 bg-[#65a30d] hover:bg-[#54870a] text-white text-[10px] font-bold rounded-lg transition-all cursor-pointer shadow-2xs shrink-0"
                           >
-                            {appliedCoupon?.code === coupon.code ? "Applied ✓" : "Apply"}
+                            {appliedCoupon?.code === coupon.code ? (isTe ? "వర్తించబడింది ✓" : "Applied ✓") : (isTe ? "వర్తించు" : "Apply")}
                           </button>
                         ) : (
                           <span className="text-[10px] text-slate-400 font-medium truncate max-w-[130px]" title={coupon.requirementText}>
@@ -2554,20 +2691,22 @@ export default function CustomerPortal({
                 <div className="w-2.5 h-2.5 rounded-full bg-[#65a30d]"></div>
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-bold text-[#1e293b] truncate">Active Repair Request</div>
+                <div className="text-xs font-bold text-[#1e293b] truncate">
+                  {isTe ? "యాక్టివ్ సర్వీస్ అభ్యర్థన" : "Active Repair Request"}
+                </div>
                 <div className="text-[10px] text-slate-600 truncate">
-                  Status: <span className="font-extrabold text-[#65a30d]">{activeBooking.status}</span> ({activeBooking.service_type})
+                  {isTe ? "హోదా:" : "Status:"} <span className="font-extrabold text-[#65a30d]">{activeBooking.status}</span> ({activeBooking.service_type})
                 </div>
               </div>
             </div>
             <button
               onClick={() => {
-                pushCustomerNavState("tracker");
                 setViewingTracker(true);
+                setBookingStep("services");
               }}
               className="px-3 py-1.5 bg-[#65a30d] hover:bg-[#52840a] text-white text-[10px] font-bold rounded-xl transition-all shadow-xs flex items-center gap-1 shrink-0"
             >
-              <span>Track</span>
+              <span>{isTe ? "ట్రాక్ చేయండి" : "Track"}</span>
               <ChevronRight size={12} />
             </button>
           </div>
@@ -2577,22 +2716,44 @@ export default function CustomerPortal({
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Select Service Categories (Multiple Allowed)
+                {isTe ? "సేవా విభాగాలను ఎంచుకోండి (ఒకటి కంటే ఎక్కువ ఎంచుకోవచ్చు)" : "Select Service Categories (Multiple Allowed)"}
               </h3>
               {selectedCats.length > 0 && (
                 <span className="text-[10px] text-[#65a30d] font-bold bg-[#e2f1e7] px-2 py-0.5 rounded-full border border-emerald-200">
-                  {selectedCats.length} {selectedCats.length === 1 ? "service" : "services"} selected
+                  {selectedCats.length} {isTe ? "సేవలు ఎంచుకోబడ్డాయి" : selectedCats.length === 1 ? "service selected" : "services selected"}
                 </span>
               )}
             </div>
 
             {loadingCats ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden p-4 space-y-3 shadow-2xs">
-                    <Skeleton className="w-full h-32 rounded-xl" />
-                    <Skeleton className="h-4 w-1/2 rounded" />
-                    <Skeleton className="h-3 w-3/4 rounded" />
+              <div className="grid grid-cols-1 gap-4">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <div key={i} className="bg-white border border-slate-200/90 rounded-2xl overflow-hidden flex flex-col justify-between shadow-2xs space-y-0">
+                    {/* Top Image Skeleton */}
+                    <div className="relative w-full h-40 bg-slate-100 overflow-hidden">
+                      <Skeleton className="w-full h-full rounded-none" />
+                      <div className="absolute top-3 right-3">
+                        <Skeleton className="h-6 w-20 rounded-full" />
+                      </div>
+                    </div>
+                    {/* Content Skeleton */}
+                    <div className="p-4 flex flex-col flex-1 justify-between gap-3">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-3/4 rounded-md" />
+                        <Skeleton className="h-3 w-full rounded-md" />
+                        <Skeleton className="h-3 w-2/3 rounded-md" />
+                      </div>
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 mt-auto">
+                        <Skeleton className="h-3 w-24 rounded-md" />
+                        <Skeleton className="h-7 w-20 rounded-xl" />
+                      </div>
+                      {/* Subcategory Preview Pill Skeletons */}
+                      <div className="pt-2 border-t border-slate-100 flex gap-1.5 items-center">
+                        <Skeleton className="h-5 w-24 rounded-md" />
+                        <Skeleton className="h-5 w-20 rounded-md" />
+                        <Skeleton className="h-5 w-16 rounded-md" />
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2602,13 +2763,13 @@ export default function CustomerPortal({
                 <p className="text-xs text-slate-500">No active categories. Contact administrator.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
+              <div className="grid grid-cols-1 gap-4">
                 {categories.map((cat) => {
                   const isSelected = selectedCats.some((c) => c.id === cat.id);
                   return (
                     <div
                       key={cat.id}
-                      className={`w-full text-left rounded-2xl border transition-all duration-300 cursor-pointer relative flex flex-col justify-between overflow-hidden shadow-sm hover:shadow-md transform hover:-translate-y-0.5 ${
+                      className={`w-full text-left rounded-2xl border transition-all duration-300 cursor-pointer relative flex flex-col justify-between overflow-hidden shadow-xs hover:shadow-md transform hover:-translate-y-0.5 ${
                         isSelected 
                           ? "bg-white border-[#65a30d] ring-2 ring-[#65a30d]/30 shadow-md" 
                           : "bg-white border-slate-200/90 hover:border-slate-300"
@@ -2617,7 +2778,7 @@ export default function CustomerPortal({
                       {/* TOP PORTION: Service Image */}
                       <div 
                         onClick={() => toggleCategorySelection(cat)}
-                        className="relative w-full h-36 sm:h-44 overflow-hidden bg-slate-100 group shrink-0"
+                        className="relative w-full h-40 overflow-hidden bg-slate-100 group shrink-0"
                       >
                         <img 
                           src={cat.image_url} 
@@ -2631,13 +2792,13 @@ export default function CustomerPortal({
                         {isSelected && (
                           <div className="absolute top-3 right-3 bg-[#65a30d] text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase shadow-md flex items-center gap-1 tracking-wider">
                             <CheckCircle2 size={12} className="stroke-[2.5]" />
-                            <span>Selected</span>
+                            <span>{isTe ? "ఎంచుకోబడింది" : "Selected"}</span>
                           </div>
                         )}
                       </div>
 
                       {/* CONTENT PORTION: Title, Description & Action */}
-                      <div className="p-4 sm:p-5 flex flex-col flex-1 justify-between gap-3">
+                      <div className="p-4 flex flex-col flex-1 justify-between gap-3">
                         {/* Title & Description */}
                         <div 
                           onClick={() => toggleCategorySelection(cat)}
@@ -2656,7 +2817,7 @@ export default function CustomerPortal({
                           <div className="flex-1 min-w-0">
                             {!isSelected && cat.subcategories && cat.subcategories.length > 0 && (
                               <span className="text-[10px] text-slate-400 font-semibold truncate block">
-                                {cat.subcategories.length} tasks available
+                                {cat.subcategories.length} {isTe ? "పనులు అందుబాటులో ఉన్నాయి" : "tasks available"}
                               </span>
                             )}
                           </div>
@@ -2676,12 +2837,12 @@ export default function CustomerPortal({
                             {isSelected ? (
                               <>
                                 <CheckCircle2 size={13} className="stroke-[2.5] shrink-0" />
-                                <span>Selected</span>
+                                <span>{isTe ? "ఎంచుకోబడింది" : "Selected"}</span>
                               </>
                             ) : (
                               <>
                                 <Plus size={13} className="stroke-[2.5] shrink-0" />
-                                <span>Select</span>
+                                <span>{isTe ? "+ ఎంచుకోండి" : "Select"}</span>
                               </>
                             )}
                           </button>
@@ -2696,6 +2857,7 @@ export default function CustomerPortal({
                             {cat.subcategories.slice(0, 3).map((sub, sIdx) => {
                               const formatted = formatSubcategoryDisplay(sub);
                               const subItem = parseSubcategoryItem(sub);
+                              const localizedSubName = getLocalizedSubcategoryName(formatted.name, currentLanguage);
                               return (
                                 <span
                                   key={sIdx}
@@ -2710,15 +2872,15 @@ export default function CustomerPortal({
                                     }));
                                   }}
                                   className="text-[10px] font-medium bg-slate-50 hover:bg-[#e2f1e7] text-slate-600 hover:text-[#65a30d] px-2 py-0.5 rounded-md border border-slate-200/70 flex items-center gap-1 cursor-pointer transition-colors max-w-full"
-                                  title={`Select ${formatted.name}`}
+                                  title={`${isTe ? "ఎంచుకోండి" : "Select"} ${localizedSubName}`}
                                 >
-                                  <span className="truncate max-w-[120px]">{formatted.name}</span>
+                                  <span className="truncate max-w-[120px]">{localizedSubName}</span>
                                 </span>
                               );
                             })}
                             {cat.subcategories.length > 3 && (
                               <span className="text-[10px] font-medium bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md shrink-0">
-                                +{cat.subcategories.length - 3} more
+                                +{cat.subcategories.length - 3} {isTe ? "మరిన్ని" : "more"}
                               </span>
                             )}
                           </div>
@@ -2730,11 +2892,13 @@ export default function CustomerPortal({
                           <div className="flex items-center justify-between text-[11px] font-bold text-slate-800">
                             <span className="flex items-center gap-1 text-[#65a30d]">
                               <Tag size={12} />
-                              Select Sub-categories / Tasks with Prices:
+                              {isTe ? "ఉపవిభాగాలు / ధరలతో కూడిన పనులను ఎంచుకోండి:" : "Select Sub-categories / Tasks with Prices:"}
                             </span>
                             <div className="flex items-center gap-2">
                               <span className="text-[10px] text-slate-500 font-semibold">
-                                {(selectedSubcategories[cat.id] || []).length} of {cat.subcategories.length} tasks selected
+                                {isTe
+                                  ? `${cat.subcategories.length}లో ${(selectedSubcategories[cat.id] || []).length} పనులు ఎంచుకోబడ్డాయి`
+                                  : `${(selectedSubcategories[cat.id] || []).length} of ${cat.subcategories.length} tasks selected`}
                               </span>
                               <button
                                 type="button"
@@ -2750,7 +2914,9 @@ export default function CustomerPortal({
                                 }}
                                 className="text-[10px] text-[#65a30d] hover:underline font-extrabold cursor-pointer"
                               >
-                                {(selectedSubcategories[cat.id] || []).length === cat.subcategories.length ? "Deselect All" : "Select All"}
+                                {(selectedSubcategories[cat.id] || []).length === cat.subcategories.length
+                                  ? (isTe ? "అన్నీ తీసివేయండి" : "Deselect All")
+                                  : (isTe ? "అన్నీ ఎంచుకోండి" : "Select All")}
                               </button>
                             </div>
                           </div>
@@ -2759,6 +2925,7 @@ export default function CustomerPortal({
                             {cat.subcategories.map((subRaw, sIdx) => {
                               const subItem = parseSubcategoryItem(subRaw);
                               const isSubSelected = (selectedSubcategories[cat.id] || []).some((s) => s.name === subItem.name);
+                              const localizedSubName = getLocalizedSubcategoryName(subItem.name, currentLanguage);
                               return (
                                 <div
                                   key={sIdx}
@@ -2775,7 +2942,7 @@ export default function CustomerPortal({
                                     }`}>
                                       <Check size={10} className="stroke-[3]" />
                                     </div>
-                                    <span className="truncate text-[11px] font-medium">{subItem.name}</span>
+                                    <span className="truncate text-[11px] font-medium">{localizedSubName}</span>
                                   </div>
                                   {formatSubcategoryDisplay(subItem).displayPrice && (
                                     <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md shrink-0 ${
@@ -2805,7 +2972,9 @@ export default function CustomerPortal({
             <div className="space-y-2.5">
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs px-1">
-                  <span className="text-slate-500 text-[11px] font-medium">Selected Services & Tasks ({selectedCats.length}):</span>
+                  <span className="text-slate-500 text-[11px] font-medium">
+                    {isTe ? "ఎంచుకున్న సేవలు & పనులు" : "Selected Services & Tasks"} ({selectedCats.length}):
+                  </span>
                   <button 
                     onClick={() => {
                       setSelectedCats([]);
@@ -2813,22 +2982,23 @@ export default function CustomerPortal({
                     }} 
                     className="text-[10px] text-slate-400 hover:text-slate-600 font-bold underline cursor-pointer"
                   >
-                    Clear All
+                    {isTe ? "అన్నీ క్లియర్ చేయండి" : "Clear All"}
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto pt-1">
                   {selectedCats.map((c) => {
                     const subs = selectedSubcategories[c.id] || [];
+                    const localizedCatName = getLocalizedCategoryName(c, currentLanguage);
                     return (
                       <span 
                         key={c.id} 
                         className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[#e2f1e7] text-[#1e293b] border border-emerald-200 text-[10px] font-bold rounded-lg"
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-[#65a30d]"></span>
-                        <span>{c.name}</span>
+                        <span>{localizedCatName}</span>
                         {subs.length > 0 && (
                           <span className="text-[9px] bg-[#65a30d] text-white px-1.5 py-0.2 rounded font-mono">
-                            {subs.length} {subs.length === 1 ? "task" : "tasks"}
+                            {subs.length} {isTe ? "పనులు" : subs.length === 1 ? "task" : "tasks"}
                           </span>
                         )}
                       </span>
@@ -2839,7 +3009,9 @@ export default function CustomerPortal({
 
               <div className="flex items-center justify-between bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
                 <div>
-                  <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">Estimated Total</span>
+                  <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">
+                    {isTe ? "మొత్తం అంచనా వ్యయం" : "Estimated Total"}
+                  </span>
                   {(() => {
                     const { minTotal, maxTotal } = getCalculatedSubtotalRange();
                     return (
@@ -2851,19 +3023,22 @@ export default function CustomerPortal({
                 </div>
                 <button
                   onClick={() => {
-                    pushCustomerNavState("details");
                     setBookingStep("details");
                   }}
                   className="py-2.5 px-5 bg-[#65a30d] hover:bg-[#52840a] text-white rounded-xl font-bold shadow-md text-xs uppercase tracking-wider transition-all flex items-center gap-2 active:scale-[0.98] cursor-pointer"
                 >
-                  <span>Confirm & Fill Details</span>
+                  <span>{isTe ? "స్థిరీకరించండి & వివరాలు నింపండి" : "Confirm & Fill Details"}</span>
                   <ChevronRight size={16} />
                 </button>
               </div>
             </div>
           ) : (
             <div className="p-3 bg-white border border-slate-200 rounded-xl text-center">
-              <p className="text-xs text-slate-400 font-medium">Please tap one or more service categories above to select tasks with pricing</p>
+              <p className="text-xs text-slate-400 font-medium">
+                {isTe
+                  ? "ధరలతో కూడిన పనులను ఎంచుకోవడానికి పైన ఉన్న ఒకటి లేదా అంతకంటే ఎక్కువ సేవా విభాగాలను ట్యాప్ చేయండి"
+                  : "Please tap one or more service categories above to select tasks with pricing"}
+              </p>
             </div>
           )}
 
@@ -2872,12 +3047,11 @@ export default function CustomerPortal({
             <button
               type="button"
               onClick={() => {
-                pushCustomerNavState("privacy");
                 setViewingFullPrivacy(true);
               }}
               className="font-bold text-[#65a30d] hover:underline"
             >
-              Privacy Policy
+              {isTe ? "గోప్యతా విధానం" : "Privacy Policy"}
             </button>
           </div>
         </div>
@@ -2897,33 +3071,33 @@ export default function CustomerPortal({
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
-              logNav("CustomerPortal", "Clicked Back button in booking details step", { historyState: window.history.state });
-              if (window.history.state?.modal === "details") {
-                window.history.back();
-              } else {
-                setBookingStep("services");
-              }
+              logNav("CustomerPortal", "Clicked Back button in booking details step");
+              setBookingStep("services");
             }}
             className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors flex items-center gap-1 text-xs font-bold"
-            title="Back to service categories"
+            title={isTe ? "సేవా విభాగాలకు తిరిగి వెళ్లండి" : "Back to service categories"}
           >
             <ArrowLeft size={16} />
-            <span className="hidden sm:inline">Back</span>
+            <span className="hidden sm:inline">{isTe ? "వెనుకకు" : "Back"}</span>
           </button>
           <div>
             <div className="flex items-center gap-2">
               <span className="bg-[#65a30d]/10 text-[#65a30d] text-[9px] font-extrabold px-2 py-0.5 rounded-md uppercase">
-                Step 2 of 2
+                {isTe ? "దశ 2 / 2" : "Step 2 of 2"}
               </span>
-              <h1 className="text-base font-bold text-[#1e293b] tracking-tight">Required Booking Details</h1>
+              <h1 className="text-base font-bold text-[#1e293b] tracking-tight">
+                {isTe ? "బుకింగ్ అవసరమైన వివరాలు" : "Required Booking Details"}
+              </h1>
             </div>
-            <p className="text-[10px] text-slate-400 font-medium">Provide phone & dispatch location to confirm</p>
+            <p className="text-[10px] text-slate-400 font-medium">
+              {isTe ? "స్థిరీకరించడానికి ఫోన్ నంబర్ & లొకేషన్ అందించండి" : "Provide phone & dispatch location to confirm"}
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#e2f1e7] rounded-full border border-emerald-100">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#e2f1e7] rounded-full border border-emerald-100 shrink-0">
           <Clock size={11} className="text-[#65a30d]" />
-          <span className="text-[9px] font-bold text-[#65a30d] uppercase">6h Purge</span>
+          <span className="text-[9px] font-bold text-[#65a30d] uppercase">{isTe ? "6గం క్లియరింగ్" : "6h Purge"}</span>
         </div>
       </div>
 
@@ -2935,27 +3109,25 @@ export default function CustomerPortal({
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-[#65a30d]"></span>
                 <span className="text-[10px] font-extrabold text-[#65a30d] uppercase tracking-wider">
-                  Selected Services ({selectedCats.length})
+                  {isTe ? "ఎంచుకున్న సేవలు" : "Selected Services"} ({selectedCats.length})
                 </span>
               </div>
               <button
                 onClick={() => {
-                  logNav("CustomerPortal", "Clicked Edit Services button in booking details step", { historyState: window.history.state });
-                  if (window.history.state?.modal === "details") {
-                    window.history.back();
-                  } else {
-                    setBookingStep("services");
-                  }
+                  logNav("CustomerPortal", "Clicked Edit Services button in booking details step");
+                  setBookingStep("services");
                 }}
                 className="px-2.5 py-1 text-[10px] font-bold text-[#65a30d] bg-white hover:bg-emerald-50 rounded-lg border border-emerald-200 shrink-0 transition-colors cursor-pointer"
               >
-                Edit Services
+                {isTe ? "సేవలను సవరించండి" : "Edit Services"}
               </button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {selectedCats.map((cat) => {
                 const subs = selectedSubcategories[cat.id] || [];
+                const localizedCatName = getLocalizedCategoryName(cat, currentLanguage);
+                const localizedCatDesc = getLocalizedCategoryDesc(cat, currentLanguage);
                 return (
                   <div key={cat.id} className="p-2.5 bg-white rounded-xl border border-emerald-100 space-y-1.5">
                     <div className="flex items-center gap-2.5">
@@ -2969,17 +3141,18 @@ export default function CustomerPortal({
                         }}
                       />
                       <div className="min-w-0 flex-1">
-                        <h4 className="text-xs font-bold text-[#1e293b] truncate">{cat.name}</h4>
-                        <p className="text-[9px] text-slate-400 line-clamp-1">{cat.description}</p>
+                        <h4 className="text-xs font-bold text-[#1e293b] truncate">{localizedCatName}</h4>
+                        <p className="text-[9px] text-slate-400 line-clamp-1">{localizedCatDesc}</p>
                       </div>
                     </div>
                     {subs.length > 0 && (
                       <div className="pt-1.5 border-t border-slate-100 flex flex-wrap gap-1">
                         {subs.map((s, sIdx) => {
                           const formatted = formatSubcategoryDisplay(s);
+                          const localizedSubName = getLocalizedSubcategoryName(formatted.name, currentLanguage);
                           return (
                             <span key={sIdx} className="text-[9px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200/80 flex items-center gap-1 font-medium">
-                              <span>{formatted.name}</span>
+                              <span>{localizedSubName}</span>
                               {formatted.displayPrice && <span className="font-bold text-[#65a30d]">{formatted.displayPrice}</span>}
                             </span>
                           );
@@ -2994,40 +3167,90 @@ export default function CustomerPortal({
         )}
 
         {/* GPS MAP CONTROLLER */}
-        <div className="bg-slate-50 border border-slate-100 rounded-2xl overflow-hidden p-3.5 space-y-3">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 bg-[#e2f1e7] text-[#65a30d] rounded-xl flex items-center justify-center shrink-0">
-              <MapPin size={16} className="stroke-[2.5]" />
+        <div className="bg-slate-50 border border-slate-200/90 rounded-2xl overflow-hidden p-4 sm:p-5 space-y-4 shadow-2xs">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5 min-w-0 flex-1">
+              <div className="w-11 h-11 sm:w-12 sm:h-12 bg-[#e2f1e7] text-[#65a30d] rounded-2xl flex items-center justify-center shrink-0 border border-emerald-200/80 shadow-2xs">
+                <MapPin size={24} className="stroke-[2.5]" />
+              </div>
+              <div className="flex-1 text-left min-w-0">
+                <h4 className="text-base sm:text-lg font-black text-[#1e293b] leading-tight">
+                  {isTe ? "జీపీఎస్ లొకేషన్" : "GPS Dispatch Overlay"}
+                </h4>
+                <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-snug">
+                  {isTe ? "శాటిలైట్ కోఆర్డినేట్లను లాక్ చేస్తుంది" : "Locks satellite coordinates for technician arrival"}
+                </p>
+              </div>
             </div>
-            <div className="flex-1 text-left min-w-0">
-              <h4 className="text-xs font-bold text-[#1e293b]">GPS Dispatch Overlay</h4>
-              <p className="text-[10px] text-slate-400 mt-0.5">Locks satellite coordinates for technician arrival</p>
-            </div>
+
+            {/* INCREASED SIZE AND WIDTH LOCATE ME BUTTON */}
             <button
+              id="locate-me-btn"
               type="button"
               onClick={triggerGpsPrompt}
               disabled={locating}
-              className="px-3 py-1.5 bg-[#65a30d] hover:bg-[#52840a] disabled:bg-slate-300 text-white text-[10px] font-bold rounded-lg transition-colors shadow-xs"
+              className={`w-full sm:w-auto px-8 sm:px-10 py-4 sm:py-4 min-h-[52px] sm:min-h-[56px] min-w-full sm:min-w-[220px] font-black text-base sm:text-lg rounded-2xl transition-all shadow-md hover:shadow-lg active:scale-98 cursor-pointer flex items-center justify-center gap-2.5 shrink-0 ${
+                locating
+                  ? "bg-slate-800 text-white cursor-wait opacity-90"
+                  : coords
+                  ? "bg-[#e2f1e7] hover:bg-[#d2e8db] text-[#52840a] border-2 border-[#65a30d]"
+                  : "bg-[#65a30d] hover:bg-[#52840a] text-white"
+              }`}
             >
-              {locating ? "Locating..." : "Locate Me"}
+              {locating ? (
+                <>
+                  <Compass size={22} className="animate-spin text-[#65a30d]" />
+                  <span>{isTe ? "గుర్తిస్తోంది..." : "Locating..."}</span>
+                </>
+              ) : coords ? (
+                <>
+                  <CheckCircle2 size={22} className="text-[#65a30d] stroke-[2.5]" />
+                  <span>{isTe ? "లొకేషన్ గుర్తించబడింది ✓" : "Locate Me"}</span>
+                </>
+              ) : (
+                <>
+                  <MapPin size={22} className="stroke-[2.5]" />
+                  <span>{isTe ? "లొకేట్ చేయండి" : "Locate Me"}</span>
+                </>
+              )}
             </button>
           </div>
 
           {/* Status or Coordinate feedback */}
           {gpsStatusText && (
-            <div className={`text-[10px] p-2.5 rounded-lg border flex gap-2 items-center ${
+            <div className={`text-xs p-2.5 rounded-xl border flex gap-2 items-center ${
               gpsPermissionGranted === false 
-                ? "bg-[#fff1f2] text-rose-600 border-rose-100" 
-                : "bg-[#e2f1e7] text-emerald-800 border-emerald-100"
+                ? "bg-[#fff1f2] text-rose-700 border-rose-200" 
+                : "bg-[#e2f1e7] text-emerald-900 border-emerald-200 font-medium"
             }`}>
-              <Info size={12} className="shrink-0" />
+              <Info size={14} className="shrink-0 text-[#65a30d]" />
               <span className="truncate font-semibold">{gpsStatusText}</span>
             </div>
           )}
 
           {/* Map Illustration */}
-          <div className="relative h-36 bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-center overflow-hidden shadow-2xs">
-            {coords ? (
+          <div className="relative h-40 sm:h-44 bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-center overflow-hidden shadow-2xs">
+            {locating ? (
+              <div className="relative w-full h-full bg-slate-900/90 flex flex-col items-center justify-center p-4 text-center overflow-hidden">
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="w-32 h-32 rounded-full border border-emerald-500/30 animate-ping"></div>
+                  <div className="w-20 h-20 rounded-full border border-emerald-500/50 animate-pulse"></div>
+                </div>
+                <div className="relative z-10 flex flex-col items-center space-y-2">
+                  <Compass size={28} className="animate-spin text-[#65a30d]" />
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-white tracking-wide flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#65a30d] animate-ping"></span>
+                      {isTe ? "జీపీఎస్ శాటిలైట్ సిగ్నల్‌ను లాక్ చేస్తోంది..." : "Locking GPS Satellite Signal..."}
+                    </p>
+                    <div className="flex items-center justify-center gap-1">
+                      <Skeleton className="h-2 w-12 bg-slate-700/80 rounded" />
+                      <Skeleton className="h-2 w-16 bg-slate-700/80 rounded" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : coords ? (
               <div className="relative w-full h-full">
                 <iframe
                   title="Customer GPS Location Map"
@@ -3046,8 +3269,8 @@ export default function CustomerPortal({
             ) : (
               <div className="flex flex-col items-center text-slate-400 gap-1.5 p-4 text-center">
                 <Compass size={24} className="animate-spin-slow text-slate-400" />
-                <span className="text-[10px] font-medium leading-snug text-slate-500">
-                  Tap "Locate Me" or type explicit address below to view location on map.
+                <span className="text-xs font-medium leading-snug text-slate-500">
+                  {isTe ? 'పైన ఉన్న "లొకేట్ చేయండి" బటన్ నొక్కండి లేదా మీ చిరునామాను క్రింద నమోదు చేయండి.' : 'Tap "Locate Me" above or type explicit address below to view location on map.'}
                 </span>
               </div>
             )}
@@ -3062,7 +3285,7 @@ export default function CustomerPortal({
         <form onSubmit={handleBookingSubmit} className="space-y-3.5 text-left">
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-              Customer Mobile Phone (10 Digits) <span className="text-red-500">*</span>
+              {isTe ? "కస్టమర్ మొబైల్ ఫోన్ (10 అంకెలు)" : "Customer Mobile Phone (10 Digits)"} <span className="text-red-500">*</span>
             </label>
             <div className="relative">
               <Phone size={14} className="absolute left-3 top-3 text-slate-400" />
@@ -3070,7 +3293,7 @@ export default function CustomerPortal({
                 type="tel"
                 required
                 maxLength={15}
-                placeholder="Enter 10-digit mobile number"
+                placeholder={isTe ? "10 అంకెల మొబైల్ నంబర్ నమోదు చేయండి" : "Enter 10-digit mobile number"}
                 value={phone}
                 onChange={(e) => {
                   const digits = e.target.value.replace(/\D/g, "").slice(0, 15);
@@ -3082,31 +3305,45 @@ export default function CustomerPortal({
             <div className="flex justify-between items-center mt-1">
               {phone.length > 0 && phone.length < 10 ? (
                 <p className="text-[10px] text-rose-500 font-bold flex items-center gap-1">
-                  <AlertCircle size={10} /> Phone number is invalid
+                  <AlertCircle size={10} /> {isTe ? "మొబైల్ నంబర్ చెల్లదు" : "Phone number is invalid"}
                 </p>
               ) : phone.length === 10 ? (
                 <p className="text-[10px] text-[#65a30d] font-bold flex items-center gap-1">
-                  <CheckCircle2 size={10} /> Valid 10-digit number
+                  <CheckCircle2 size={10} /> {isTe ? "సరైన 10 అంకెల నంబర్" : "Valid 10-digit number"}
                 </p>
               ) : (
-                <p className="text-[10px] text-slate-400 font-medium">Must be exactly 10 digits</p>
+                <p className="text-[10px] text-slate-400 font-medium">
+                  {isTe ? "ఖచ్చితంగా 10 అంకెలు ఉండాలి" : "Must be exactly 10 digits"}
+                </p>
               )}
               <p className={`text-[10px] font-bold ${phone.length === 10 ? "text-[#65a30d]" : phone.length > 0 ? "text-rose-500" : "text-slate-400"}`}>
-                {phone.length}/10 digits
+                {phone.length}/10 {isTe ? "అంకెలు" : "digits"}
               </p>
             </div>
           </div>
 
           <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-              Explicit Dispatch Address <span className="text-red-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                {isTe ? "ఖచ్చితమైన సర్వీస్ చిరునామా" : "Explicit Dispatch Address"} <span className="text-red-500">*</span>
+              </label>
+              <button
+                type="button"
+                onClick={triggerGpsPrompt}
+                disabled={locating}
+                className="text-[10px] font-extrabold text-[#65a30d] hover:text-[#52840a] flex items-center gap-1 bg-[#e2f1e7] hover:bg-[#d2e8db] px-2.5 py-0.5 rounded-lg cursor-pointer transition-colors border border-emerald-200 shadow-2xs"
+                title={isTe ? "ప్రస్తుత పరికర GPS స్థానం నుండి చిరునామాను ఆటో-ఫిల్ చేయండి" : "Auto-fill address from current device GPS position"}
+              >
+                <Compass size={11} className={locating ? "animate-spin text-[#65a30d]" : "text-[#65a30d]"} />
+                <span>{locating ? (isTe ? "గుర్తిస్తోంది..." : "Locating...") : (isTe ? "జీపీఎస్ ఆటో-ఫిల్" : "📍 GPS Auto-Fill")}</span>
+              </button>
+            </div>
             <div className="relative">
               <FileText size={14} className="absolute left-3 top-3 text-slate-400" />
               <textarea
                 required
                 rows={2}
-                placeholder="Provide detailed physical address (e.g. Street, House No., Area)"
+                placeholder={isTe ? "పూర్తి భౌతిక చిరునామాను నమోదు చేయండి (ఉదా. వీధి, ఇంటి నం, ప్రాంతం)" : "Provide detailed physical address (e.g. Street, House No., Area)"}
                 value={address}
                 onChange={(e) => {
                   const val = e.target.value;
@@ -3127,13 +3364,13 @@ export default function CustomerPortal({
 
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-              Landmark <span className="text-slate-400">(Optional)</span>
+              {isTe ? "ల్యాండ్‌మార్క్" : "Landmark"} <span className="text-slate-400">({isTe ? "ఐచ్ఛికం" : "Optional"})</span>
             </label>
             <div className="relative">
               <Building size={14} className="absolute left-3 top-3 text-slate-400" />
               <input
                 type="text"
-                placeholder="E.g., Near City Church"
+                placeholder={isTe ? "ఉదా. సిటీ చర్చ్ లేదా ప్రధాన ఆలయం దగ్గర" : "E.g., Near City Church"}
                 value={landmark}
                 onChange={(e) => setLandmark(e.target.value)}
                 className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-9 pr-4 text-[#1e293b] focus:bg-white focus:ring-1 focus:ring-[#65a30d] outline-hidden font-medium"
@@ -3141,20 +3378,57 @@ export default function CustomerPortal({
             </div>
           </div>
 
-
-
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-              Additional Notes / Defect Details <span className="text-slate-400">(Optional)</span>
+              {isTe ? "అదనపు గమనికలు / లోపాల వివరాలు" : "Additional Notes / Defect Details"} <span className="text-slate-400">({isTe ? "ఐచ్ఛికం" : "Optional"})</span>
             </label>
             <textarea
               rows={2}
-              placeholder="Provide any additional notes or instructions..."
+              placeholder={isTe ? "అదనపు గమనికలు లేదా సూచనలను నమోదు చేయండి..." : "Provide any additional notes or instructions..."}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 text-[#1e293b] focus:bg-white focus:ring-1 focus:ring-[#65a30d] outline-hidden font-medium leading-relaxed"
             />
           </div>
+
+          {isSubmitting && (
+            <div className="p-3.5 bg-slate-900 text-white rounded-2xl shadow-lg border border-slate-800 space-y-2.5 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#65a30d] animate-ping"></span>
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">
+                    {isTe ? "సేవా అభ్యర్థన పంపబడుతోంది..." : "Dispatching Service Request..."}
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono text-[#65a30d] font-bold bg-[#65a30d]/20 px-2 py-0.5 rounded-md">
+                  {isTe ? "ప్రాసెసింగ్" : "Processing"}
+                </span>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[10px] text-slate-300">
+                  <span className="flex items-center gap-1 font-medium">
+                    <Activity size={12} className="text-[#65a30d] animate-spin" />
+                    {isTe ? "FixHome డిస్పాచ్ ఇంజిన్‌కు కనెక్ట్ అవుతోంది..." : "Connecting to FixHome Dispatch Engine..."}
+                  </span>
+                  <span className="font-bold">100%</span>
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                  <div className="bg-[#65a30d] h-full rounded-full w-full animate-pulse"></div>
+                </div>
+              </div>
+
+              <div className="pt-1 flex items-center justify-between gap-2 border-t border-slate-800/80">
+                <div className="flex items-center gap-1.5">
+                  <Skeleton className="h-3 w-20 bg-slate-800 rounded" />
+                  <Skeleton className="h-3 w-14 bg-slate-800 rounded" />
+                </div>
+                <span className="text-[9px] text-slate-400 italic">
+                  {isTe ? "దయచేసి వేచి ఉండండి, తక్షణమే డిస్పాచ్ చేయబడుతుంది..." : "Please wait standard instant dispatch..."}
+                </span>
+              </div>
+            </div>
+          )}
 
           {formError && (
             <div className="p-3 bg-[#fff1f2] border border-rose-100 text-rose-600 rounded-xl text-xs font-semibold flex items-center gap-2">
@@ -3167,9 +3441,18 @@ export default function CustomerPortal({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-3.5 bg-[#65a30d] hover:bg-[#52840a] disabled:bg-slate-300 text-white rounded-xl font-bold shadow-md text-xs tracking-wider uppercase active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+              className="w-full py-3.5 bg-[#65a30d] hover:bg-[#52840a] disabled:bg-[#65a30d]/70 text-white rounded-xl font-bold shadow-md text-xs tracking-wider uppercase active:scale-[0.98] transition-all flex items-center justify-center gap-2"
             >
-              {isSubmitting ? "Dispatching Technician..." : `Confirm & Submit ${selectedCats.length} ${selectedCats.length === 1 ? "Service" : "Services"} Booking`}
+              {isSubmitting ? (
+                <>
+                  <RefreshCw size={15} className="animate-spin text-white" />
+                  <span>{isTe ? "టెక్నీషియన్‌ను డిస్పాచ్ చేస్తోంది & ID లాక్ చేస్తోంది..." : "Dispatching Technician & Locking ID..."}</span>
+                </>
+              ) : (
+                isTe
+                  ? `${selectedCats.length} సేవల బుకింగ్‌ను నిర్ధారించి సమర్పించండి`
+                  : `Confirm & Submit ${selectedCats.length} ${selectedCats.length === 1 ? "Service" : "Services"} Booking`
+              )}
             </button>
           </div>
         </form>
@@ -3181,12 +3464,11 @@ export default function CustomerPortal({
         <button
           type="button"
           onClick={() => {
-            pushCustomerNavState("privacy");
             setViewingFullPrivacy(true);
           }}
           className="text-[10px] font-bold text-[#65a30d] hover:underline"
         >
-          Privacy Policy
+          {isTe ? "గోప్యతా విధానం" : "Privacy Policy"}
         </button>
       </div>
       </div>
@@ -3202,14 +3484,22 @@ export default function CustomerPortal({
             </div>
             
             <h3 className="text-base font-bold text-[#1e293b] tracking-tight">
-              Pre-Permission Location Check
+              {isTe ? "ముందస్తు లొకేషన్ అనుమతి" : "Pre-Permission Location Check"}
             </h3>
             
             <p className="text-[11px] text-slate-500 leading-normal">
-              <strong>FixHome</strong> requires your exact geolocation coordinates to pinpoint dispatch technicians.
+              {isTe ? (
+                <><strong>FixHome</strong> టెక్నీషియన్‌ను పంపడానికి మీ ఖచ్చితమైన భౌగోళిక కోఆర్డినేట్లను కోరుతుంది.</>
+              ) : (
+                <><strong>FixHome</strong> requires your exact geolocation coordinates to pinpoint dispatch technicians.</>
+              )}
             </p>
             <p className="text-[10px] text-slate-400 leading-normal bg-slate-50 p-2 rounded-lg border">
-              We gather GPS coordinates <strong>solely in the foreground</strong> for dispatch accuracy. No background tracking is active.
+              {isTe ? (
+                <>డిస్పాచ్ ఖచ్చితత్వం కోసం మేము <strong>ముందుభాగంలో మాత్రమే</strong> GPS కోఆర్డినేట్లను సేకరిస్తాము. బ్యాక్‌గ్రౌండ్ ట్రాకింగ్ ఉండదు.</>
+              ) : (
+                <>We gather GPS coordinates <strong>solely in the foreground</strong> for dispatch accuracy. No background tracking is active.</>
+              )}
             </p>
 
             <div className="flex gap-2.5 pt-2">
@@ -3224,13 +3514,13 @@ export default function CustomerPortal({
                 }}
                 className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-[#1e293b] text-xs font-bold rounded-xl transition-all"
               >
-                Type Manually
+                {isTe ? "మాన్యువల్‌గా నమోదు చేయండి" : "Type Manually"}
               </button>
               <button
                 onClick={handleConfirmGpsPermission}
                 className="flex-1 py-2 bg-[#65a30d] hover:bg-[#52840a] text-white text-xs font-bold rounded-xl transition-all shadow-md"
               >
-                Allow GPS
+                {isTe ? "GPS అనుమతించండి" : "Allow GPS"}
               </button>
             </div>
           </div>
@@ -3249,10 +3539,14 @@ export default function CustomerPortal({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
-                    {userMobile ? "My Account & History" : "Mobile Login / History"}
+                    {userMobile
+                      ? (isTe ? "నా ఖాతా & బుకింగ్ చరిత్ర" : "My Account & History")
+                      : (isTe ? "మొబైల్ లాగిన్ / చరిత్ర" : "Mobile Login / History")}
                   </h3>
                   <p className="text-[10px] text-slate-400">
-                    {userMobile ? `Logged in as ${userMobile}` : "Enter mobile number to retrieve past bookings"}
+                    {userMobile
+                      ? (isTe ? `${userMobile} గా లాగిన్ అయ్యారు` : `Logged in as ${userMobile}`)
+                      : (isTe ? "మునుపటి బుకింగ్‌లను చూడటానికి మొబైల్ నంబర్ నమోదు చేయండి" : "Enter mobile number to retrieve past bookings")}
                   </p>
                 </div>
               </div>
@@ -3285,7 +3579,7 @@ export default function CustomerPortal({
                         : "text-slate-500 hover:text-slate-800"
                     }`}
                   >
-                    User Login
+                    {isTe ? "యూజర్ లాగిన్" : "User Login"}
                   </button>
                   <button
                     type="button"
@@ -3296,7 +3590,7 @@ export default function CustomerPortal({
                         : "text-slate-500 hover:text-slate-800"
                     }`}
                   >
-                    Register Account
+                    {isTe ? "ఖాతా నమోదు" : "Register Account"}
                   </button>
                 </div>
 
@@ -3311,12 +3605,12 @@ export default function CustomerPortal({
                   <form onSubmit={handleUserMobileLogin} className="space-y-3">
                     <div>
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                        Mobile Phone Number *
+                        {isTe ? "మొబైల్ ఫోన్ నంబర్ *" : "Mobile Phone Number *"}
                       </label>
                       <input
                         type="tel"
                         required
-                        placeholder="10-digit mobile number"
+                        placeholder={isTe ? "10 అంకెల మొబైల్ నంబర్" : "10-digit mobile number"}
                         value={loginPhoneInput}
                         onChange={(e) => setLoginPhoneInput(e.target.value)}
                         className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-slate-900 focus:bg-white focus:ring-2 focus:ring-[#65a30d] outline-hidden font-medium"
@@ -3325,13 +3619,13 @@ export default function CustomerPortal({
 
                     <div>
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                        Account Password *
+                        {isTe ? "ఖాతా పాస్‌వర్డ్ *" : "Account Password *"}
                       </label>
                       <div className="relative">
                         <input
                           type={showPassword ? "text" : "password"}
                           required
-                          placeholder="Enter your password"
+                          placeholder={isTe ? "పాస్‌వర్డ్ నమోదు చేయండి" : "Enter your password"}
                           value={loginPasswordInput}
                           onChange={(e) => setLoginPasswordInput(e.target.value)}
                           className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-3 pr-9 text-slate-900 focus:bg-white focus:ring-2 focus:ring-[#65a30d] outline-hidden font-medium"
@@ -3352,19 +3646,19 @@ export default function CustomerPortal({
                       className="w-full py-2.5 bg-[#65a30d] hover:bg-[#52840a] disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center justify-center gap-2"
                     >
                       {authLoading ? <RefreshCw size={14} className="animate-spin" /> : <Lock size={14} />}
-                      <span>Login & Access Profile</span>
+                      <span>{isTe ? "లాగిన్ అవ్వండి & ప్రొఫైల్ చూడండి" : "Login & Access Profile"}</span>
                     </button>
                   </form>
                 ) : (
                   <form onSubmit={handleUserRegister} className="space-y-3">
                     <div>
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                        Full Name *
+                        {isTe ? "పూర్తి పేరు *" : "Full Name *"}
                       </label>
                       <input
                         type="text"
                         required
-                        placeholder="E.g., Rajesh Kumar"
+                        placeholder={isTe ? "ఉదా. రాజేష్ కుమార్" : "E.g., Rajesh Kumar"}
                         value={registerNameInput}
                         onChange={(e) => setRegisterNameInput(e.target.value.replace(/[^a-zA-Z\s]/g, ""))}
                         className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-slate-900 focus:bg-white focus:ring-2 focus:ring-[#65a30d] outline-hidden font-medium"
@@ -3373,12 +3667,12 @@ export default function CustomerPortal({
 
                     <div>
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                        Mobile Phone Number *
+                        {isTe ? "మొబైల్ ఫోన్ నంబర్ *" : "Mobile Phone Number *"}
                       </label>
                       <input
                         type="tel"
                         required
-                        placeholder="10-digit mobile number"
+                        placeholder={isTe ? "10 అంకెల మొబైల్ నంబర్" : "10-digit mobile number"}
                         value={registerPhoneInput}
                         onChange={(e) => setRegisterPhoneInput(e.target.value)}
                         className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-slate-900 focus:bg-white focus:ring-2 focus:ring-[#65a30d] outline-hidden font-medium"
@@ -3387,14 +3681,14 @@ export default function CustomerPortal({
 
                     <div>
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                        Create Account Password *
+                        {isTe ? "ఖాతా పాస్‌వర్డ్ సృష్టించండి *" : "Create Account Password *"}
                       </label>
                       <div className="relative">
                         <input
                           type={showPassword ? "text" : "password"}
                           required
                           minLength={4}
-                          placeholder="At least 4 characters"
+                          placeholder={isTe ? "కనీసం 4 అక్షరాలు" : "At least 4 characters"}
                           value={registerPasswordInput}
                           onChange={(e) => setRegisterPasswordInput(e.target.value)}
                           className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-3 pr-9 text-slate-900 focus:bg-white focus:ring-2 focus:ring-[#65a30d] outline-hidden font-medium"
@@ -3415,7 +3709,7 @@ export default function CustomerPortal({
                       className="w-full py-2.5 bg-[#65a30d] hover:bg-[#52840a] disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center justify-center gap-2"
                     >
                       {authLoading ? <RefreshCw size={14} className="animate-spin" /> : <UserCheck size={14} />}
-                      <span>Create Account & Register</span>
+                      <span>{isTe ? "ఖాతా సృష్టించండి & నమోదు చేయండి" : "Create Account & Register"}</span>
                     </button>
                   </form>
                 )}
@@ -3423,19 +3717,19 @@ export default function CustomerPortal({
             ) : (
               <div className="flex-1 overflow-y-auto space-y-3 min-h-[200px]">
                 <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                  <span className="text-xs font-bold text-slate-800">Phone: {userMobile}</span>
+                  <span className="text-xs font-bold text-slate-800">{isTe ? "ఫోన్" : "Phone"}: {userMobile}</span>
                   <button
                     onClick={handleUserLogout}
                     className="text-[10px] font-bold text-rose-600 hover:underline flex items-center gap-1 cursor-pointer"
                   >
                     <LogOut size={10} />
-                    <span>Change Number</span>
+                    <span>{isTe ? "నంబర్ మార్చండి" : "Change Number"}</span>
                   </button>
                 </div>
 
                 <div className="space-y-2">
                   <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">
-                    Past & Active Dispatches ({userHistory.length})
+                    {isTe ? "గత & క్రియాశీల బుకింగ్‌లు" : "Past & Active Dispatches"} ({userHistory.length})
                   </h4>
 
                   {loadingHistory ? (
@@ -3452,7 +3746,9 @@ export default function CustomerPortal({
                     </div>
                   ) : userHistory.length === 0 ? (
                     <div className="text-center py-6 bg-slate-50 rounded-xl text-slate-400 text-xs p-3">
-                      No prior booking dispatches found for {userMobile}.
+                      {isTe
+                        ? `${userMobile} కోసం గత బుకింగ్‌లు ఏవీ కనుగొనబడలేదు.`
+                        : `No prior booking dispatches found for ${userMobile}.`}
                     </div>
                   ) : (
                     userHistory.map((h) => (
@@ -3467,14 +3763,16 @@ export default function CustomerPortal({
                             h.status === "Assigned" ? "bg-blue-100 text-blue-800" :
                             "bg-amber-100 text-amber-800"
                           }`}>
-                            {h.status}
+                            {h.status === "Completed" ? (isTe ? "పూర్తయింది" : "Completed") :
+                             h.status === "Assigned" ? (isTe ? "కేటాయించబడింది" : "Assigned") :
+                             (isTe ? "పెండింగ్‌లో ఉంది" : h.status)}
                           </span>
                         </div>
 
                         {h.assigned_worker_name && (
                           <div className="text-[10px] font-medium text-[#65a30d] flex items-center gap-1">
                             <UserCheck size={11} />
-                            <span>Worker: {h.assigned_worker_name}</span>
+                            <span>{isTe ? "టెక్నీషియన్" : "Worker"}: {h.assigned_worker_name}</span>
                           </div>
                         )}
 
@@ -3484,11 +3782,12 @@ export default function CustomerPortal({
                             onClick={() => {
                               setActiveBooking(h);
                               setViewingTracker(true);
+                              setBookingStep("services");
                               setHistoryModalOpen(false);
                             }}
                             className="text-[#65a30d] font-bold hover:underline cursor-pointer"
                           >
-                            Track Live →
+                            {isTe ? "లైవ్ ట్రాక్ →" : "Track Live →"}
                           </button>
                         </div>
                       </div>

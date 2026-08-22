@@ -5,6 +5,7 @@ import { Language, t } from "../i18n.ts";
 import LanguageSelector from "./LanguageSelector.tsx";
 import { FIXHOME_LOGO } from "../assets/logoData.ts";
 import { isValidName, sanitizeNameInput, isValidPhoneNumber } from "../utils/validation.ts";
+import { secureStorage } from "../utils/secureStorage.ts";
 
 interface LoginPageProps {
   onLoginSuccess: (user: UserProfile) => void;
@@ -41,6 +42,9 @@ export default function LoginPage({
 
     // Instant local save and screen transition for seamless zero-delay UX
     try {
+      secureStorage.setItem("fix_home_user_name", cleanName);
+      secureStorage.setItem("fix_home_user_mobile", cleanMobile);
+      secureStorage.setItem("fix_home_privacy_accepted", "true");
       localStorage.setItem("fix_home_user_name", cleanName);
       localStorage.setItem("fix_home_user_mobile", cleanMobile);
       localStorage.setItem("fix_home_privacy_accepted", "true");

@@ -11,6 +11,7 @@ import {
   getAdminByMobile,
   getCategories,
   addCategory,
+  updateCategory,
   updateCategorySubcategories,
   deleteCategory,
   createBooking,
@@ -35,9 +36,15 @@ import {
   getAllUsers
 } from "./server/db.ts";
 import { uploadMedia } from "./server/storage.ts";
+import {
+  getTelegramConfig,
+  saveTelegramConfig,
+  sendTelegramMessage,
+  sendBookingTelegramNotification
+} from "./server/telegram.ts";
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const PORT = 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "fix-home-jwt-secret-key-9938";
 
 // Multer memory storage configuration for file uploads
@@ -49,7 +56,8 @@ const upload = multer({
   }
 });
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // Health & Database connection status endpoint
 app.get("/api/health", (req, res) => {
@@ -63,27 +71,27 @@ app.get("/api/health", (req, res) => {
 
 // Serve Service Worker with explicit headers and no-cache policy
 app.get("/sw.js", (req, res) => {
-  res.setHeader("Content-Type", "application/javascript");
+  res.setHeader("Content-Type", "application/javascript; charset=UTF-8");
   res.setHeader("Service-Worker-Allowed", "/");
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   const swPath = path.join(process.cwd(), "public", "sw.js");
   if (fs.existsSync(swPath)) {
     res.sendFile(swPath);
   } else {
-    res.status(404).send("// Service worker file not found");
+    res.status(404).type("application/javascript").send("// Service worker file not found");
   }
 });
 
 // Serve FCM Firebase Messaging Service Worker with explicit headers
 app.get("/firebase-messaging-sw.js", (req, res) => {
-  res.setHeader("Content-Type", "application/javascript");
+  res.setHeader("Content-Type", "application/javascript; charset=UTF-8");
   res.setHeader("Service-Worker-Allowed", "/");
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   const fcmSwPath = path.join(process.cwd(), "public", "firebase-messaging-sw.js");
   if (fs.existsSync(fcmSwPath)) {
     res.sendFile(fcmSwPath);
   } else {
-    res.status(404).send("// FCM Service worker file not found");
+    res.status(404).type("application/javascript").send("// FCM Service worker file not found");
   }
 });
 
@@ -202,6 +210,9 @@ app.post("/api/admin/login", async (req, res) => {
 
 // 2. PUBLIC: Get Active Service Categories
 app.get("/api/categories", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   try {
     const categories = await getCategories();
     res.json(categories);
@@ -261,7 +272,57 @@ app.post("/api/categories", authenticateAdmin, upload.single("image"), async (re
   }
 });
 
-// 3.5 ADMIN-ONLY: Manage/Update Subcategories for a Category
+// 3.5 ADMIN-ONLY: Edit / Update Service Category (Name, Description, Image, Subcategories)
+app.put("/api/categories/:id", authenticateAdmin, upload.single("image"), async (req, res) => {
+  const { id } = req.params;
+  const { name, description, image_url } = req.body;
+  const file = req.file;
+
+  try {
+    let finalImageUrl = image_url;
+    if (file) {
+      const THIRTY_MB = 30 * 1024 * 1024;
+      if (file.size > THIRTY_MB) {
+        return res.status(400).json({
+          error: "CRITICAL LIMIT EXCEEDED: Upload blocked! The selected file exceeds 30MB.",
+          limit_error: true
+        });
+      }
+      finalImageUrl = await uploadMedia(file.buffer, file.originalname, file.mimetype);
+    }
+
+    let parsedSubcats: string[] | undefined = undefined;
+    if (req.body.subcategories !== undefined) {
+      if (Array.isArray(req.body.subcategories)) {
+        parsedSubcats = req.body.subcategories;
+      } else if (typeof req.body.subcategories === "string") {
+        try {
+          parsedSubcats = JSON.parse(req.body.subcategories);
+        } catch (e) {
+          parsedSubcats = req.body.subcategories.split(",").map((s: string) => s.trim()).filter(Boolean);
+        }
+      }
+    }
+
+    const updatedCategory = await updateCategory(id, {
+      name: name ? name.trim() : undefined,
+      description: description ? description.trim() : undefined,
+      imageUrl: finalImageUrl,
+      subcategories: parsedSubcats
+    });
+
+    if (updatedCategory) {
+      res.json({ success: true, category: updatedCategory, message: "Service category updated successfully." });
+    } else {
+      res.status(404).json({ error: "Service category not found." });
+    }
+  } catch (err: any) {
+    console.error("Error updating category:", err);
+    res.status(500).json({ error: err.message || "Could not update service category." });
+  }
+});
+
+// 3.6 ADMIN-ONLY: Manage/Update Subcategories for a Category
 app.put("/api/categories/:id/subcategories", authenticateAdmin, async (req, res) => {
   const { id } = req.params;
   let { subcategories } = req.body;
@@ -344,6 +405,20 @@ app.post("/api/bookings", async (req, res) => {
       additional_notes
     });
 
+    // Fire Telegram Instant Alert asynchronously in background (non-blocking)
+    sendBookingTelegramNotification(booking)
+      .then((tgResult) => {
+        if (tgResult.success) {
+          console.log(`[Telegram Notification Sent] Alert dispatched successfully for booking ${booking.request_id}`);
+        } else {
+          console.warn(`[Telegram Notification Warning] Could not send alert: ${tgResult.error}`);
+        }
+      })
+      .catch((err) => {
+        console.error("[Telegram] Async notification error:", err);
+      });
+
+    // Return HTTP response IMMEDIATELY so the client UI updates without lag
     res.status(201).json({
       success: true,
       request_id: booking.request_id,
@@ -353,6 +428,25 @@ app.post("/api/bookings", async (req, res) => {
   } catch (err) {
     console.error("Error creating booking:", err);
     res.status(500).json({ error: "Could not complete booking submission." });
+  }
+});
+
+// PUBLIC: Fallback or Direct Trigger for Telegram Notification
+app.post("/api/public/telegram-notify", async (req, res) => {
+  const { booking } = req.body || {};
+  if (!booking) {
+    return res.status(400).json({ error: "Booking object is required" });
+  }
+
+  try {
+    const result = await sendBookingTelegramNotification(booking);
+    if (result.success) {
+      res.json({ success: true, message: "Telegram notification sent successfully." });
+    } else {
+      res.status(400).json({ error: result.error || "Failed to send Telegram notification." });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Error sending Telegram notification." });
   }
 });
 
@@ -729,6 +823,64 @@ app.get("/api/admin/users", authenticateAdmin, async (req, res) => {
   }
 });
 
+// ==================== TELEGRAM NOTIFICATION ADMIN ENDPOINTS ====================
+
+// GET: Retrieve Telegram configuration status
+app.get("/api/admin/telegram-config", (req, res) => {
+  const config = getTelegramConfig();
+  res.json({
+    success: true,
+    botToken: config.botToken ? `${config.botToken.substring(0, 8)}...${config.botToken.slice(-4)}` : "",
+    hasBotToken: Boolean(config.botToken),
+    chatId: config.chatId,
+    enabled: config.enabled
+  });
+});
+
+// POST: Save Telegram configuration (Bot Token, Chat ID, Enabled toggle)
+app.post("/api/admin/telegram-config", (req, res) => {
+  const { botToken, chatId, enabled } = req.body;
+  if (botToken === undefined && chatId === undefined && enabled === undefined) {
+    return res.status(400).json({ error: "No Telegram settings provided." });
+  }
+
+  const updated = saveTelegramConfig({
+    botToken,
+    chatId,
+    enabled
+  });
+
+  res.json({
+    success: true,
+    message: "Telegram notification settings saved successfully.",
+    enabled: updated.enabled,
+    chatId: updated.chatId,
+    hasBotToken: Boolean(updated.botToken)
+  });
+});
+
+// POST: Send test notification message to Telegram
+app.post("/api/admin/telegram-test", async (req, res) => {
+  const { botToken, chatId } = req.body;
+  const config = getTelegramConfig();
+  const tokenToUse = (botToken && botToken.trim()) ? botToken.trim() : config.botToken;
+  const chatIdToUse = (chatId && chatId.trim()) ? chatId.trim() : config.chatId;
+
+  if (!tokenToUse || !chatIdToUse) {
+    return res.status(400).json({ error: "Both Bot Token and Chat ID are required to send a test message. Please enter and save credentials first." });
+  }
+
+  const testMessage = `🤖 <b>FIXHOME TELEGRAM TEST NOTIFICATION</b>\n\n✅ Your Telegram Bot integration is working perfectly!\n\nYou will receive instant notifications whenever a customer books a service on FixHome.\n\n<i>Time: ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</i>`;
+
+  const result = await sendTelegramMessage(testMessage, tokenToUse, chatIdToUse);
+
+  if (result.success) {
+    res.json({ success: true, message: "Test alert sent successfully! Check your Telegram chat." });
+  } else {
+    res.status(400).json({ error: result.error || "Failed to send test message to Telegram." });
+  }
+});
+
 
 
 // ==================== ASYNC BOOT & ROUTING INTERFACES ====================
@@ -759,11 +911,39 @@ async function startServer() {
     console.log("Mounted Vite development middleware");
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    
+    // Immutable cache for Vite hashed assets
+    app.use("/assets", express.static(path.join(distPath, "assets"), {
+      maxAge: "1y",
+      immutable: true,
+      fallthrough: false
+    }));
+
+    // Service workers and manifest must never be cached long term
+    app.get(["/sw.js", "/firebase-messaging-sw.js", "/manifest.json"], (req, res, next) => {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+      next();
+    });
+
+    app.use(express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+          res.setHeader("Pragma", "no-cache");
+          res.setHeader("Expires", "0");
+        }
+      }
+    }));
+
     app.get("*", (req, res) => {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
       res.sendFile(path.join(distPath, "index.html"));
     });
-    console.log("Serving production static assets from dist/");
+    console.log("Serving production static assets from dist/ with proper Cache-Control headers");
   }
 
   app.listen(PORT, "0.0.0.0", () => {

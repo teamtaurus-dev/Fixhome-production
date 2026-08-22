@@ -1,38 +1,45 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { SafeAreaView, StyleSheet, StatusBar, BackHandler, Linking, View, Text } from 'react-native';
+import React, { useRef, useEffect } from 'react';
+import { SafeAreaView, StyleSheet, StatusBar, BackHandler, Linking } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 export default function App() {
   const webViewRef = useRef(null);
-  const [canGoBack, setCanGoBack] = useState(false);
-  const [lastMessage, setLastMessage] = useState('none yet');
-  const [messageCount, setMessageCount] = useState(0);
 
   useEffect(() => {
     const onBackPress = () => {
-      if (canGoBack && webViewRef.current) {
-        webViewRef.current.goBack();
+      if (webViewRef.current) {
+        // Forward hardware back directly and exclusively to the web app
+        webViewRef.current.injectJavaScript(`
+          (function() {
+            try {
+              if (typeof window.__handleHardwareBack === 'function') {
+                window.__handleHardwareBack();
+              }
+            } catch (err) {}
+          })();
+          true;
+        `);
         return true;
-      } else {
-        return false;
       }
+      return false;
     };
 
     const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => backHandler.remove();
-  }, [canGoBack]);
+  }, []);
 
   const handleMessage = (event) => {
-    setMessageCount((c) => c + 1);
-    setLastMessage(event.nativeEvent.data);
     try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data && typeof data.canGoBack === 'boolean') {
-        setCanGoBack(data.canGoBack);
+      const dataStr = event.nativeEvent.data;
+      if (dataStr === 'exitApp' || dataStr === 'close') {
+        BackHandler.exitApp();
+        return;
       }
-    } catch (e) {
-      setLastMessage('PARSE ERROR: ' + event.nativeEvent.data);
-    }
+      const data = JSON.parse(dataStr);
+      if (data && (data.action === 'exitApp' || data.type === 'EXIT_APP')) {
+        BackHandler.exitApp();
+      }
+    } catch (e) {}
   };
 
   return (
@@ -44,13 +51,8 @@ export default function App() {
         style={{ flex: 1 }}
         domStorageEnabled={true}
         javaScriptEnabled={true}
-        allowsBackForwardNavigationGestures={true}
+        allowsBackForwardNavigationGestures={false}
         onMessage={handleMessage}
-        onNavigationStateChange={(navState) => {
-          if (navState.canGoBack !== undefined && navState.canGoBack) {
-            setCanGoBack(true);
-          }
-        }}
         onShouldStartLoadWithRequest={(request) => {
           const { url } = request;
           if (
@@ -65,22 +67,6 @@ export default function App() {
           return true;
         }}
       />
-      <View style={{
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: 'rgba(0,0,0,0.85)',
-        padding: 8,
-        zIndex: 9999,
-      }}>
-        <Text style={{ color: '#0f0', fontSize: 11, fontFamily: 'monospace' }}>
-          canGoBack: {String(canGoBack)} | messages received: {messageCount}
-        </Text>
-        <Text style={{ color: '#0f0', fontSize: 10, fontFamily: 'monospace' }} numberOfLines={2}>
-          last: {lastMessage}
-        </Text>
-      </View>
     </SafeAreaView>
   );
 }
@@ -91,3 +77,4 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
 });
+
