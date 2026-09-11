@@ -135,15 +135,25 @@ export function sanitizeBookingPayload(data: Record<string, any>): Record<string
  * Payload Sanitizer for Booking Status & Worker Updates
  */
 export function sanitizeStatusUpdatePayload(status: string, extra: Record<string, any> = {}): Record<string, any> {
-  const allowedStatuses = new Set(["pending", "assigned", "accepted", "in_progress", "completed", "cancelled"]);
-  const cleanStatus = String(status || "").trim().toLowerCase();
+  const allowedStatuses: Record<string, "Pending" | "Assigned" | "In Progress" | "Completed" | "Cancelled"> = {
+    "pending": "Pending",
+    "assigned": "Assigned",
+    "accepted": "Assigned",
+    "in_progress": "In Progress",
+    "in progress": "In Progress",
+    "completed": "Completed",
+    "cancelled": "Cancelled",
+    "canceled": "Cancelled"
+  };
+  const cleanKey = String(status || "").trim().toLowerCase();
+  const normalized = allowedStatuses[cleanKey];
 
-  if (!allowedStatuses.has(cleanStatus)) {
+  if (!normalized) {
     throw new Error(`Invalid status state: "${status}".`);
   }
 
   const payload: Record<string, any> = {
-    status: cleanStatus,
+    status: normalized,
     updated_at: new Date().toISOString()
   };
 

@@ -177,6 +177,26 @@ export function dialNativePhoneNumber(rawPhoneNumber: string) {
   }
 }
 
+export function showNativeToast(message: string = "Press back again to exit FixHome") {
+  try {
+    if (typeof window !== "undefined") {
+      const w = window as any;
+      if (w.ReactNativeWebView?.postMessage) {
+        w.ReactNativeWebView.postMessage(JSON.stringify({ action: "showToast", type: "SHOW_TOAST", message }));
+      }
+      if (w.AndroidInterface?.showToast) {
+        w.AndroidInterface.showToast(message);
+      }
+      if (w.AndroidBridge?.showToast) {
+        w.AndroidBridge.showToast(message);
+      }
+      if (w.Android?.showToast) {
+        w.Android.showToast(message);
+      }
+    }
+  } catch (e) {}
+}
+
 export function exitNativeApp() {
   logNav("NativeBridge", "exitNativeApp() invoked", {
     timestamp: new Date().toISOString(),

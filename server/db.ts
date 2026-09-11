@@ -64,7 +64,7 @@ export interface Booking {
   google_maps_url: string | null;
   landmark: string | null;
   additional_notes: string | null;
-  status: "Pending" | "Assigned" | "In Progress" | "Completed";
+  status: "Pending" | "Assigned" | "In Progress" | "Completed" | "Cancelled";
   is_personal_data_deleted: boolean;
   assigned_worker_id?: string | null;
   assigned_worker_name?: string | null;
@@ -74,8 +74,8 @@ export interface Booking {
   amount?: number;
   discount_applied?: number;
   final_amount?: number;
-  created_at: Date;
-  updated_at: Date;
+  created_at: Date | string;
+  updated_at: Date | string;
 }
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -126,7 +126,11 @@ function readJsonDb(): JsonDatabase {
 
 // Write JSON database
 function writeJsonDb(db: JsonDatabase) {
-  fs.writeFileSync(JSON_DB_PATH, JSON.stringify(db, null, 2), "utf8");
+  try {
+    fs.writeFileSync(JSON_DB_PATH, JSON.stringify(db, null, 2), "utf8");
+  } catch (err) {
+    console.warn("Notice: Unable to write to local database.json file:", err);
+  }
 }
 
 // Initialize the database tables
@@ -1210,7 +1214,11 @@ export async function getBookings(): Promise<Booking[]> {
     .map((b) => ensureMapsUrl(b)!);
 }
 
-export async function updateBookingStatus(requestId: string, status: "Pending" | "Assigned" | "In Progress" | "Completed"): Promise<Booking | null> {
+export async function updateBookingStatus(
+  requestId: string,
+  status: "Pending" | "Assigned" | "In Progress" | "Completed" | "Cancelled",
+  fallbackData?: Partial<Booking>
+): Promise<Booking | null> {
   // Check if status is transitioning to Completed and update worker metrics
   const current = await getBookingById(requestId);
   if (current && current.status !== "Completed" && status === "Completed" && current.assigned_worker_id) {
@@ -1236,7 +1244,7 @@ export async function updateBookingStatus(requestId: string, status: "Pending" |
 
   if (pool) {
     try {
-      if (status === "Completed") {
+      if (status === "Cancelled") {
         const res = await pool.query(
           `UPDATE bookings
            SET status = $1,
@@ -1269,12 +1277,40 @@ export async function updateBookingStatus(requestId: string, status: "Pending" |
       console.error("Error updating booking status in PostgreSQL:", err);
     }
   }
+
   const db = readJsonDb();
-  const booking = db.bookings.find((b) => b.request_id === requestId);
+  let booking = db.bookings.find((b) => b.request_id === requestId);
+  if (!booking && fallbackData) {
+    booking = {
+      request_id: requestId,
+      service_type: fallbackData.service_type || "Home Service",
+      mobile_number: fallbackData.mobile_number || null,
+      address: fallbackData.address || null,
+      google_maps_url: fallbackData.google_maps_url || null,
+      landmark: fallbackData.landmark || null,
+      additional_notes: fallbackData.additional_notes || null,
+      customer_user_phone: fallbackData.customer_user_phone || fallbackData.mobile_number || null,
+      amount: Number(fallbackData.amount || 0),
+      discount_applied: Number(fallbackData.discount_applied || 0),
+      final_amount: Number(fallbackData.final_amount || 0),
+      status: status,
+      is_personal_data_deleted: status === "Cancelled",
+      created_at: fallbackData.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      latitude: fallbackData.latitude || null,
+      longitude: fallbackData.longitude || null,
+      assigned_worker_id: fallbackData.assigned_worker_id || null,
+      assigned_worker_name: fallbackData.assigned_worker_name || null,
+      assigned_worker_phone: fallbackData.assigned_worker_phone || null,
+      assigned_worker_photo: fallbackData.assigned_worker_photo || null
+    };
+    db.bookings.push(booking);
+  }
+
   if (booking) {
     booking.status = status;
-    booking.updated_at = new Date();
-    if (status === "Completed") {
+    booking.updated_at = new Date().toISOString();
+    if (status === "Cancelled") {
       booking.mobile_number = null;
       booking.address = null;
       booking.latitude = null;
@@ -1283,11 +1319,85 @@ export async function updateBookingStatus(requestId: string, status: "Pending" |
       booking.landmark = null;
       booking.additional_notes = null;
       booking.is_personal_data_deleted = true;
+    } else if (status === "Completed") {
+      // Retain customer information for permanent history record
+      if (fallbackData) {
+        if (fallbackData.mobile_number && !booking.mobile_number) booking.mobile_number = fallbackData.mobile_number;
+        if (fallbackData.address && !booking.address) booking.address = fallbackData.address;
+        if (fallbackData.service_type && !booking.service_type) booking.service_type = fallbackData.service_type;
+        if (fallbackData.customer_user_phone && !booking.customer_user_phone) booking.customer_user_phone = fallbackData.customer_user_phone;
+      }
     }
     writeJsonDb(db);
     return ensureMapsUrl(booking);
   }
   return null;
+}
+
+/**
+ * Cancel a booking request before a technician has been assigned.
+ * Automatically deletes customer personal details (PII) upon cancellation.
+ */
+export async function cancelBooking(
+  requestId: string
+): Promise<{ success: boolean; booking?: Booking; error?: string }> {
+  const current = await getBookingById(requestId);
+  if (!current) {
+    return { success: false, error: "Booking request not found." };
+  }
+
+  // Strictly enforce: cancellation only allowed before a worker is assigned
+  if (current.status !== "Pending" || current.assigned_worker_id || current.assigned_worker_name) {
+    return {
+      success: false,
+      error: "Service cannot be cancelled after a worker or technician has been assigned."
+    };
+  }
+
+  if (pool) {
+    try {
+      const res = await pool.query(
+        `UPDATE bookings
+         SET status = 'Cancelled',
+             mobile_number = NULL,
+             address = NULL,
+             latitude = NULL,
+             longitude = NULL,
+             google_maps_url = NULL,
+             landmark = NULL,
+             additional_notes = NULL,
+             is_personal_data_deleted = TRUE,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE request_id = $1
+         RETURNING *`,
+        [requestId]
+      );
+      if (res.rowCount && res.rowCount > 0) {
+        return { success: true, booking: ensureMapsUrl(res.rows[0])! };
+      }
+    } catch (err: any) {
+      console.error("Error cancelling booking in PostgreSQL:", err);
+    }
+  }
+
+  const db = readJsonDb();
+  const booking = db.bookings.find((b) => b.request_id === requestId);
+  if (booking) {
+    booking.status = "Cancelled";
+    booking.mobile_number = null;
+    booking.address = null;
+    booking.latitude = null;
+    booking.longitude = null;
+    booking.google_maps_url = null;
+    booking.landmark = null;
+    booking.additional_notes = null;
+    booking.is_personal_data_deleted = true;
+    booking.updated_at = new Date();
+    writeJsonDb(db);
+    return { success: true, booking: ensureMapsUrl(booking)! };
+  }
+
+  return { success: false, error: "Could not update booking status to Cancelled." };
 }
 
 export async function purgeBookingPIIById(requestId: string): Promise<Booking | null> {

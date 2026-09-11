@@ -21,7 +21,7 @@
         "backgroundColor": "#0b152d"
       },
       "package": "com.fixhome.android",
-      "versionCode": 8,
+      "versionCode": 7,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
@@ -39,7 +39,9 @@
         {
           "android": {
             "compileSdkVersion": 36,
-            "targetSdkVersion": 36
+            "targetSdkVersion": 36,
+            "buildToolsVersion": "35.0.0",
+            "useLegacyPackaging": false
           }
         }
       ]

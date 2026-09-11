@@ -1,14 +1,32 @@
 import React, { useRef, useEffect } from 'react';
-import { SafeAreaView, StyleSheet, StatusBar, BackHandler, Linking } from 'react-native';
+import { SafeAreaView, StyleSheet, StatusBar, BackHandler, Linking, ToastAndroid, Platform, AppState } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 export default function App() {
   const webViewRef = useRef(null);
+  const lastBackPressRef = useRef(0);
+  const isNavigatingSubViewRef = useRef(false);
 
   useEffect(() => {
+    // Whenever app is resumed/opened/foregrounded, tell webview to reset exit timer
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active' && webViewRef.current) {
+        lastBackPressRef.current = 0;
+        webViewRef.current.injectJavaScript(`
+          (function() {
+            try {
+              if (typeof window.__resetExitTimer === 'function') {
+                window.__resetExitTimer();
+              }
+            } catch (e) {}
+          })();
+          true;
+        `);
+      }
+    });
+
     const onBackPress = () => {
       if (webViewRef.current) {
-        // Forward hardware back directly and exclusively to the web app
         webViewRef.current.injectJavaScript(`
           (function() {
             try {
@@ -25,19 +43,28 @@ export default function App() {
     };
 
     const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
-    return () => backHandler.remove();
+    return () => {
+      backHandler.remove();
+      subscription.remove();
+    };
   }, []);
 
   const handleMessage = (event) => {
     try {
       const dataStr = event.nativeEvent.data;
-      if (dataStr === 'exitApp' || dataStr === 'close') {
+      if (dataStr === 'exitApp' || dataStr === 'close' || dataStr === 'EXIT_APP') {
         BackHandler.exitApp();
         return;
       }
       const data = JSON.parse(dataStr);
-      if (data && (data.action === 'exitApp' || data.type === 'EXIT_APP')) {
-        BackHandler.exitApp();
+      if (data) {
+        if (data.action === 'exitApp' || data.type === 'EXIT_APP') {
+          BackHandler.exitApp();
+        } else if (data.action === 'showToast' || data.type === 'SHOW_TOAST') {
+          if (Platform.OS === 'android') {
+            ToastAndroid.show(data.message || 'Press back again to exit FixHome', ToastAndroid.SHORT);
+          }
+        }
       }
     } catch (e) {}
   };
@@ -53,6 +80,20 @@ export default function App() {
         javaScriptEnabled={true}
         allowsBackForwardNavigationGestures={false}
         onMessage={handleMessage}
+        onLoadEnd={() => {
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript(`
+              (function() {
+                try {
+                  if (typeof window.__syncNativeBackState === 'function') {
+                    window.__syncNativeBackState();
+                  }
+                } catch (e) {}
+              })();
+              true;
+            `);
+          }
+        }}
         onShouldStartLoadWithRequest={(request) => {
           const { url } = request;
           if (
@@ -77,4 +118,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
 });
+
+
+
 

@@ -12,7 +12,7 @@ import { UserProfile } from "./types.ts";
 import { Language, getInitialLanguage, saveLanguage, t } from "./i18n.ts";
 import { FIXHOME_LOGO } from "./assets/logoData.ts";
 import { logNav } from "./utils/navLogger.ts";
-import { notifyNativeBackState, exitNativeApp } from "./utils/nativeBridge.ts";
+import { notifyNativeBackState, exitNativeApp, showNativeToast } from "./utils/nativeBridge.ts";
 import { secureStorage } from "./utils/secureStorage.ts";
 
 function AppSkeleton() {
@@ -281,6 +281,12 @@ export default function App() {
   });
 
   useEffect(() => {
+    if (showPinModal || activeTab !== "customer") {
+      notifyNativeBackState(true);
+    }
+  }, [showPinModal, activeTab]);
+
+  useEffect(() => {
     const handleOffline = () => {
       setIsOffline(true);
     };
@@ -299,14 +305,20 @@ export default function App() {
       const now = Date.now();
       const current = appStateRef.current;
 
-      // 0. Debounce duplicate dispatches of the SAME physical back press across multiple listeners (within 300ms)
-      if (now - lastDispatchTimestampRef.current < 300) {
-        logNav("HardwareBack", "Ignoring rapid duplicate event of same physical press within 300ms", {
+      // 0. Debounce duplicate dispatches of the SAME physical micro-tick across bridges (within 80ms)
+      if (now - lastDispatchTimestampRef.current < 80) {
+        logNav("HardwareBack", "Ignoring rapid duplicate event within 80ms", {
           delta: now - lastDispatchTimestampRef.current
         });
         return true;
       }
       lastDispatchTimestampRef.current = now;
+
+      // If already in exit state, trigger exit directly
+      if (isExitingRef.current) {
+        exitNativeApp();
+        return true;
+      }
 
       // 1. PIN modal check -> Close modal
       if (current.showPinModal) {
@@ -320,8 +332,21 @@ export default function App() {
         return true;
       }
 
-      // 2. Admin portal check -> return to Customer portal
+      // 2. Admin portal check -> handle admin subviews/modals/tabs first, then return to Customer portal
       if (current.activeTab === "admin") {
+        if (typeof (window as any).__adminPortalBack === "function") {
+          const handledByAdmin = (window as any).__adminPortalBack();
+          if (handledByAdmin) {
+            logNav("HardwareBack", "Back event handled by sub-view in AdminPortal");
+            lastBackPressRef.current = 0;
+            subviewPoppedTimestampRef.current = now;
+            isExitingRef.current = false;
+            if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+            setBackToastMessage(null);
+            return true;
+          }
+        }
+        logNav("HardwareBack", "Admin root back press -> returning to Customer portal");
         setActiveTab("customer");
         setNavigationStack(["customer"]);
         lastBackPressRef.current = 0;
@@ -345,8 +370,8 @@ export default function App() {
         }
       }
 
-      // If a subview was just dismissed within the last 400ms, suppress root exit check
-      if (now - subviewPoppedTimestampRef.current < 400) {
+      // If a subview was just dismissed within the last 100ms, suppress root exit check
+      if (now - subviewPoppedTimestampRef.current < 100) {
         logNav("HardwareBack", "Subview was recently dismissed; suppressing root exit check");
         return true;
       }
@@ -355,28 +380,30 @@ export default function App() {
       const previousBackPress = lastBackPressRef.current;
       const timeDelta = previousBackPress > 0 ? now - previousBackPress : null;
 
-      if (previousBackPress > 0 && timeDelta !== null && timeDelta >= 300 && timeDelta <= 2500) {
-        // Genuine second back press within 2.5 seconds -> Trigger App Exit
+      if (previousBackPress > 0 && timeDelta !== null && timeDelta >= 80 && timeDelta <= 4000) {
+        // Genuine second back press within 4 seconds -> Trigger App Exit
         logNav("HardwareBack", "Second back press detected at root -> Exiting native app", { timeDelta });
         isExitingRef.current = true;
         lastBackPressRef.current = 0;
         if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-        setBackToastMessage(t("exitingApp", current.language) || "Exiting app...");
+        setBackToastMessage(t("exitingApp", current.language) || "Exiting FixHome...");
         exitNativeApp();
         return true;
       } else {
-        // First back press at root -> Show Toast and arm 2.5s timer
+        // First back press at root -> Show Toast and arm 4s timer
         logNav("HardwareBack", "First back press detected at root -> Showing 2-Tap exit toast", { previousBackPress, now });
         lastBackPressRef.current = now;
         isExitingRef.current = false;
 
-        setBackToastMessage(t("pressBackToExit", current.language) || "Click again to exit");
+        const toastMsg = t("pressBackToExit", current.language) || "Press back again to exit";
+        setBackToastMessage(toastMsg);
+        showNativeToast(toastMsg);
         if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
         toastTimeoutRef.current = setTimeout(() => {
           logNav("HardwareBack", "2-Tap Exit Timer Expired -> Resetting lastBackPressRef to 0");
           lastBackPressRef.current = 0;
           setBackToastMessage(null);
-        }, 2500);
+        }, 4000);
 
         return true;
       }
@@ -388,18 +415,85 @@ export default function App() {
       setBackToastMessage(null);
     };
 
+    // Push multiple guard buffer states so Android WebView and browsers always trigger popstate on back gesture
+    const ensureGuardHistory = () => {
+      try {
+        if (typeof window !== "undefined" && window.history) {
+          const currentPath = window.location.pathname + window.location.search;
+          window.history.replaceState({ isRoot: true, page: "root", guardId: "base" }, "", currentPath + "#root");
+          window.history.pushState({ isRoot: true, guard: true, guardId: "guard1" }, "", currentPath + "#app");
+          window.history.pushState({ isRoot: true, guard: true, guardId: "guard2" }, "", currentPath + "#main");
+        }
+      } catch (e) {}
+    };
+
+    ensureGuardHistory();
+
+    // Ensure guard entries exist upon first user interaction or app focus/resume
+    const handleUserTouchActivation = () => {
+      try {
+        if (window.history && window.history.length <= 2) {
+          ensureGuardHistory();
+        }
+      } catch (e) {}
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        logNav("Visibility", "App became visible -> re-ensuring guard history & resetting exit state");
+        ensureGuardHistory();
+        lastBackPressRef.current = 0;
+        isExitingRef.current = false;
+        setBackToastMessage(null);
+      }
+    };
+
+    window.addEventListener("touchstart", handleUserTouchActivation, { passive: true });
+    window.addEventListener("click", handleUserTouchActivation, { passive: true });
+    window.addEventListener("pointerdown", handleUserTouchActivation, { passive: true });
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    const handlePopState = (e: PopStateEvent) => {
+      logNav("PopState", "popstate event fired", { state: e.state });
+      try {
+        // ALWAYS keep history trapped by pushing state so the WebView never runs out of history
+        window.history.pushState({ isRoot: true, guard: true, guardId: Date.now() }, "", window.location.pathname + window.location.search + "#app");
+      } catch (err) {}
+      handleHardwareBack(e);
+    };
+
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
-    document.addEventListener("backbutton", handleHardwareBack);
+    window.addEventListener("popstate", handlePopState);
+    document.addEventListener("backbutton", (e) => handleHardwareBack(e));
     (window as any).__handleHardwareBack = handleHardwareBack;
     (window as any).__resetExitTimer = resetExitTimer;
+    (window as any).__showExitToast = () => {
+      const current = appStateRef.current;
+      setBackToastMessage(t("pressBackToExit", current.language) || "Press back again to exit");
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = setTimeout(() => {
+        setBackToastMessage(null);
+      }, 3500);
+    };
+    (window as any).__showExitingToast = () => {
+      const current = appStateRef.current;
+      setBackToastMessage(t("exitingApp", current.language) || "Exiting FixHome...");
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    };
 
     return () => {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
-      document.removeEventListener("backbutton", handleHardwareBack);
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("touchstart", handleUserTouchActivation);
+      window.removeEventListener("click", handleUserTouchActivation);
+      window.removeEventListener("pointerdown", handleUserTouchActivation);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       delete (window as any).__handleHardwareBack;
       delete (window as any).__resetExitTimer;
+      delete (window as any).__showExitToast;
+      delete (window as any).__showExitingToast;
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       cancelHold();
     };
@@ -431,10 +525,10 @@ export default function App() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.9 }}
               transition={{ duration: 0.2 }}
-              className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] pointer-events-none px-5 py-2.5 bg-slate-900/95 text-white text-xs font-bold rounded-full shadow-2xl border border-slate-700/60 flex items-center gap-2.5 backdrop-blur-md"
+              className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[999999] pointer-events-none px-6 py-3.5 bg-slate-950 text-white text-xs font-bold rounded-full shadow-2xl border border-slate-700/90 flex items-center gap-3 backdrop-blur-md ring-1 ring-white/20"
             >
-              <span className="w-2 h-2 rounded-full bg-[#84cc16] animate-ping shrink-0" />
-              <span>{backToastMessage}</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-[#84cc16] animate-ping shrink-0" />
+              <span className="tracking-wide text-sm font-semibold whitespace-nowrap">{backToastMessage}</span>
             </motion.div>
           )}
         </AnimatePresence>

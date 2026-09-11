@@ -170,7 +170,7 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     platformTagline: "FixHome • Professional Repair Services Platform",
     errEnterName: "Please enter a valid full name using alphabets only.",
     errEnterMobile: "please enter a valid phone number",
-    pressBackToExit: "Click again to exit",
+    pressBackToExit: "Press back again to exit",
     exitingApp: "Exiting FixHome...",
 
     // Customer Portal Extras

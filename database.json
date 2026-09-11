@@ -48,7 +48,27 @@
       "created_at": "2026-08-01T13:52:13.869Z"
     }
   ],
-  "bookings": [],
+  "bookings": [
+    {
+      "request_id": "538e1f2e-f85b-4486-91b8-3894c99c7633",
+      "service_type": "Plumbing - Leak Repair",
+      "mobile_number": null,
+      "address": null,
+      "google_maps_url": null,
+      "landmark": null,
+      "additional_notes": null,
+      "customer_user_phone": "9849758018",
+      "amount": 499,
+      "discount_applied": 0,
+      "final_amount": 499,
+      "status": "Completed",
+      "is_personal_data_deleted": true,
+      "created_at": "2026-09-02T16:28:14.447Z",
+      "updated_at": "2026-09-02T16:28:14.449Z",
+      "latitude": null,
+      "longitude": null
+    }
+  ],
   "workers": [
     {
       "id": "ff757a48-dd71-40d9-9143-55e396201f9d",

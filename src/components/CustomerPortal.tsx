@@ -87,21 +87,33 @@ interface CustomerPortalProps {
   onLogout?: () => void;
 }
 
+function getLocalizedCategoryNameByString(catName: string, lang: Language): string {
+  if (lang !== "te" || !catName) return catName;
+  const nameLower = (catName || "").toLowerCase().trim();
+  if (nameLower.includes("sewage") || nameLower.includes("drainage")) return "సీవేజ్ & డ్రైనేజీ సేవలు";
+  if (nameLower.includes("shifting") || nameLower.includes("house shift") || nameLower.includes("relocation")) return "ఇల్లు మారే (హౌస్ షిఫ్టింగ్) సేవలు";
+  if (nameLower.includes("plumb")) return "ప్లంబింగ్ రిపేర్ & ఇన్స్టాలేషన్";
+  if (nameLower.includes("electr")) return "ఎలక్ట్రికల్ సేవలు & వైరింగ్";
+  if (nameLower.includes("appliance") || nameLower.includes("air condition") || nameLower === "ac" || nameLower.startsWith("ac ") || nameLower.endsWith(" ac")) return "ఏసీ & గృహ ఉపకరణాల సేవలు";
+  if (nameLower.includes("carpent")) return "కార్పెంటరీ & ఫర్నిచర్ పనులు";
+  if (nameLower.includes("paint")) return "పెయింటింగ్ & వాటర్‌ప్రూఫింగ్";
+  if (nameLower.includes("total home clean") || nameLower.includes("home clean") || nameLower.includes("clean")) return "డీప్ క్లీనింగ్ & శానిటైజేషన్";
+  if (nameLower.includes("event")) return "ఈవెంట్ మేనేజ్‌మెంట్ సేవలు";
+  if (nameLower.includes("handyman")) return "హ్యాండీమ్యాన్ సేవలు";
+  if (nameLower.includes("pest")) return "పెస్ట్ కంట్రోల్ సేవలు";
+  if (nameLower.includes("cctv") || nameLower.includes("security")) return "సిసిటివి & సెక్యూరిటీ సేవలు";
+  return catName;
+}
+
 function getLocalizedCategoryName(cat: Category, lang: Language): string {
   if (lang === "te") {
-    const nameLower = (cat.name || "").toLowerCase();
-    if (cat.id === "cat_1" || nameLower.includes("plumb")) return "ప్లంబింగ్ రిపేర్ & ఇన్స్టాలేషన్";
-    if (cat.id === "cat_2" || nameLower.includes("electr")) return "ఎలక్ట్రికల్ సేవలు & వైరింగ్";
-    if (cat.id === "cat_3" || nameLower.includes("appliance") || nameLower.includes("ac")) return "ఏసీ & గృహ ఉపకరణాల సేవలు";
-    if (cat.id === "cat_4" || nameLower.includes("carpent")) return "కార్పెంటరీ & ఫర్నిచర్ పనులు";
-    if (cat.id === "cat_5" || nameLower.includes("paint")) return "పెయింటింగ్ & వాటర్‌ప్రూఫింగ్";
-    if (cat.id === "cat_6" || nameLower.includes("clean")) return "డీప్ క్లీనింగ్ & శానిటైజేషన్";
-    if (nameLower.includes("sewage") || nameLower.includes("drain")) return "సీవేజ్ & డ్రైనేజీ సేవలు";
-    if (nameLower.includes("event")) return "ఈవెంట్ మేనేజ్‌మెంట్ సేవలు";
-    if (nameLower.includes("shifting") || nameLower.includes("house shift")) return "ఇల్లు మారే (హౌస్ షిఫ్టింగ్) సేవలు";
-    if (nameLower.includes("handyman")) return "హ్యాండీమ్యాన్ సేవలు";
-    if (nameLower.includes("pest")) return "పెస్ట్ కంట్రోల్ సేవలు";
-    if (nameLower.includes("cctv") || nameLower.includes("security")) return "సిసిటివి & సెక్యూరిటీ సేవలు";
+    if (cat.id === "cat_1") return "ప్లంబింగ్ రిపేర్ & ఇన్స్టాలేషన్";
+    if (cat.id === "cat_2") return "ఎలక్ట్రికల్ సేవలు & వైరింగ్";
+    if (cat.id === "cat_3") return "ఏసీ & గృహ ఉపకరణాల సేవలు";
+    if (cat.id === "cat_4") return "కార్పెంటరీ & ఫర్నిచర్ పనులు";
+    if (cat.id === "cat_5") return "పెయింటింగ్ & వాటర్‌ప్రూఫింగ్";
+    if (cat.id === "cat_6") return "డీప్ క్లీనింగ్ & శానిటైజేషన్";
+    return getLocalizedCategoryNameByString(cat.name, lang);
   }
   return cat.name;
 }
@@ -110,16 +122,18 @@ function getLocalizedCategoryDesc(cat: Category, lang: Language): string {
   if (lang === "te") {
     const nameLower = (cat.name || "").toLowerCase();
     const descLower = (cat.description || "").toLowerCase();
-    if (cat.id === "cat_1" || nameLower.includes("plumb") || descLower.includes("tap")) return "టాప్ లీకేజీ, పైప్ ఫిట్టింగ్స్, బ్లాకేజ్ తొలగింపు, టాయిలెట్ & బేసిన్ రిపేర్";
-    if (cat.id === "cat_2" || nameLower.includes("electr") || descLower.includes("switch")) return "షార్ట్ సర్క్యూట్ బాగు చేయడం, స్విచ్ బోర్డులు, MCB మార్పిడి, ఫ్యాన్ & లైట్ ఫిట్టింగ్";
-    if (cat.id === "cat_3" || nameLower.includes("appliance") || nameLower.includes("ac") || descLower.includes("ac")) return "ఏసీ కూలింగ్ రిపేర్, గ్యాస్ ఛార్జింగ్, వాషింగ్ మెషిన్, ఫ్రిజ్ & గీజర్ సర్వీస్";
-    if (cat.id === "cat_4" || nameLower.includes("carpent") || descLower.includes("door")) return "డోర్ లాక్ బాగు చేయడం, క్యాబినెట్ రిపేర్లు, బెడ్ అసెంబ్లీ, చెక్క ఫర్నిచర్ పనులు";
-    if (cat.id === "cat_5" || nameLower.includes("paint") || descLower.includes("wall")) return "గోడల పెయింటింగ్, వాటర్‌ప్రూఫ్ ప్యాచింగ్, ఎనామిల్ కోటింగ్, ఇంటీరియర్ టచ్‌అప్‌లు";
-    if (cat.id === "cat_6" || nameLower.includes("clean") || descLower.includes("cleaning")) return "డీప్ బాత్‌రూమ్ క్లీనింగ్, కిచెన్ గ్రీస్ తొలగింపు, సోఫా & కార్పెట్ క్లీనింగ్";
-    if (nameLower.includes("sewage") || descLower.includes("sewage")) return "పైప్ బ్లాకేజ్ తొలగింపు, డ్రెయిన్ క్లీనింగ్ మరియు సీవేజ్ క్లియరెన్స్ సేవలు";
+    if (cat.id === "cat_1" || nameLower.includes("plumb") || descLower.includes("plumb") || descLower.includes("tap")) return "టాప్ లీకేజీ, పైప్ ఫిట్టింగ్స్, బ్లాకేజ్ తొలగింపు, టాయిలెట్ & బేసిన్ రిపేర్";
+    if (cat.id === "cat_2" || nameLower.includes("electr") || descLower.includes("electr") || descLower.includes("switch")) return "షార్ట్ సర్క్యూట్ బాగు చేయడం, స్విచ్ బోర్డులు, MCB మార్పిడి, ఫ్యాన్ & లైట్ ఫిట్టింగ్";
+    if (cat.id === "cat_3" || nameLower.includes("appliance") || nameLower.includes("ac") || nameLower.includes("air condition") || descLower.includes("ac") || descLower.includes("cooling")) return "ఏసీ కూలింగ్ రిపేర్, గ్యాస్ ఛార్జింగ్, వాషింగ్ మెషిన్, ఫ్రిజ్ & గీజర్ సర్వీస్";
+    if (cat.id === "cat_4" || nameLower.includes("carpent") || descLower.includes("carpent") || descLower.includes("door")) return "డోర్ లాక్ బాగు చేయడం, క్యాబినెట్ రిపేర్లు, బెడ్ అసెంబ్లీ, చెక్క ఫర్నిచర్ పనులు";
+    if (cat.id === "cat_5" || nameLower.includes("paint") || descLower.includes("paint") || descLower.includes("wall")) return "గోడల పెయింటింగ్, వాటర్‌ప్రూఫ్ ప్యాచింగ్, ఎనామిల్ కోటింగ్, ఇంటీరియర్ టచ్‌అప్‌లు";
+    if (cat.id === "cat_6" || nameLower.includes("clean") || descLower.includes("clean")) return "డీప్ బాత్‌రూమ్ క్లీనింగ్, కిచెన్ గ్రీస్ తొలగింపు, సోఫా & కార్పెట్ క్లీనింగ్";
+    if (nameLower.includes("sewage") || descLower.includes("sewage") || nameLower.includes("drain") || descLower.includes("drain")) return "పైప్ బ్లాకేజ్ తొలగింపు, డ్రెయిన్ క్లీనింగ్ మరియు సీవేజ్ క్లియరెన్స్ సేవలు";
     if (nameLower.includes("event") || descLower.includes("event")) return "వివాహాలు, పుట్టినరోజులు మరియు ప్రత్యేక వేడుకల కోసం ఈవెంట్ మేనేజ్‌మెంట్";
     if (nameLower.includes("shifting") || descLower.includes("shifting")) return "స్థానిక మరియు సుదూర ప్రాంతాలకు ఇల్లు మారే (షిఫ్టింగ్) ప్రొఫెషనల్ సేవలు";
     if (nameLower.includes("handyman") || descLower.includes("handyman")) return "ఇంటి మరమ్మతులు, కర్టెన్ రాడ్లు, టీవీ ఫిట్టింగ్ మరియు సాధారణ పనుల నిపుణులు";
+    if (nameLower.includes("pest") || descLower.includes("pest")) return "బొద్దింకలు, చెదపురుగులు మరియు కీటకాల నివారణ సేవలు";
+    if (nameLower.includes("cctv") || descLower.includes("cctv") || nameLower.includes("security")) return "CCTV కెమెరా ఇన్‌స్టాలేషన్, DVR సెటప్ మరియు సెక్యూరిటీ మెయింటెనెన్స్";
   }
   return cat.description;
 }
@@ -128,49 +142,153 @@ function getLocalizedSubcategoryName(rawName: string, lang: Language): string {
   if (lang !== "te" || !rawName) return rawName;
   const n = rawName.toLowerCase().trim();
 
+  // --- Plumbing Subcategories & Tasks ---
+  if (n.includes("flush tank") || n.includes("flush repair")) return "ఫ్లష్ ట్యాంక్ రిపేర్";
+  if (n.includes("leakage repair") || n.includes("leak repair") || n.includes("leakage")) return "లీకేజ్ రిపేర్";
+  if (n.includes("pipe line") || n.includes("pipeline") || n.includes("pipe fitting") || n.includes("pipe replacement") || n.includes("pipe repair")) return "పైప్‌లైన్ రిపేర్ & ఫిట్టింగ్";
+  if (n.includes("water tank cleaning") || n.includes("tank cleaning")) return "వాటర్ ట్యాంక్ క్లీనింగ్";
+  if (n.includes("bore motor") || n.includes("submersible motor") || n.includes("borewell")) return "బోర్ మోటార్ రిమూవల్ & ఫిక్సింగ్";
+  if (n.includes("motor installation") || n.includes("water motor") || n.includes("motor repair") || n.includes("motor fix")) return "మోటార్ ఇన్‌స్టాలేషన్";
+  if (n.includes("drain block") || n.includes("drainage block") || n.includes("blockage removal") || n.includes("drainage")) return "డ్రైన్ బ్లాకేజ్ తొలగింపు";
+  if (n.includes("water heater") || n.includes("geyser connection")) return "వాటర్ హీటర్ కనెక్షన్";
+  if (n.includes("shower installation") || n.includes("shower repair") || n.includes("shower")) return "షవర్ ఇన్‌స్టాలేషన్";
+  if (n.includes("complete bathroom") || n.includes("bathroom plumbing")) return "పూర్తి బాత్‌రూమ్ ప్లంబింగ్ పనులు";
+  if (n.includes("tap / faucet") || n.includes("tap/faucet") || n.includes("tap leakage") || n.includes("faucet") || n.includes("tap repair") || n.includes("tap")) return "టాప్/ఫాసెట్ ఇన్‌స్టాలేషన్";
+  if (n.includes("wash basin") || n.includes("washbasin")) return "వాష్ బేసిన్ ఇన్‌స్టాలేషన్";
+  if (n.includes("sink installation") || n.includes("sink fix") || n.includes("sink")) return "సింక్ ఇన్‌స్టాలేషన్";
+  if (n.includes("toilet basin") || n.includes("toilet & washbasin") || n.includes("toilet fix") || n.includes("toilet installation") || n.includes("toilet repair") || n.includes("toilet")) return "టాయిలెట్ ఇన్‌స్టాలేషన్ & రిపేర్";
+
+  // --- Cleaning Subcategories & Tasks ---
   if (n.includes("bathroom deep") || n.includes("bathroom clean")) return "బాత్‌రూమ్ డీప్ క్లీనింగ్";
   if (n.includes("kitchen degreasing") || n.includes("kitchen deep") || n.includes("kitchen clean")) return "కిచెన్ డీప్ క్లీనింగ్";
-  if (n.includes("sofa") || n.includes("mattress")) return "సోఫా & మ్యాట్రెస్ క్లీనింగ్";
-  if (n.includes("full home deep") || n.includes("sanitization")) return "పూర్తి ఇంటి క్లీనింగ్ & శానిటైజేషన్";
+  if (n.includes("sofa") || n.includes("mattress") || n.includes("carpet")) return "సోఫా & మ్యాట్రెస్ క్లీనింగ్";
+  if (n.includes("full home deep") || n.includes("full house clean") || n.includes("sanitization")) return "పూర్తి ఇంటి క్లీనింగ్ & శానిటైజేషన్";
+  if (n.includes("balcony cleaning") || n.includes("floor scrubbing")) return "బాల్కనీ & ఫ్లోర్ స్క్రబ్బింగ్";
+  if (n.includes("window cleaning") || n.includes("glass cleaning")) return "విండో & గ్లాస్ క్లీనింగ్";
 
-  if (n.includes("ac general") || n.includes("ac service")) return "ఏసీ జనరల్ సర్వీస్";
-  if (n.includes("ac gas") || n.includes("gas charging")) return "ఏసీ గ్యాస్ ఛార్జింగ్";
-  if (n.includes("ac installation") || n.includes("ac install")) return "ఏసీ ఇన్స్టాలేషన్";
-  if (n.includes("washing machine")) return "వాషింగ్ మెషిన్ రిపేర్";
-  if (n.includes("geyser")) return "గీజర్ రిపేర్ & సర్వీస్";
+  // --- AC & Appliances Subcategories & Tasks ---
+  if (n.includes("ac general") || n.includes("ac service") || n.includes("ac deep clean")) return "ఏసీ జనరల్ సర్వీస్";
+  if (n.includes("ac gas") || n.includes("gas charging") || n.includes("gas leak")) return "ఏసీ గ్యాస్ ఛార్జింగ్";
+  if (n.includes("ac uninstallation") || n.includes("ac uninstall")) return "ఏసీ అన్‌ఇన్‌స్టాలేషన్";
+  if (n.includes("ac installation") || n.includes("ac install")) return "ఏసీ ఇన్‌స్టాలేషన్";
+  if (n.includes("washing machine")) return "వాషింగ్ మెషిన్ రిపేర్ & సర్వీస్";
+  if (n.includes("refrigerator") || n.includes("fridge")) return "ఫ్రిజ్ రిపేర్ విజిట్";
+  if (n.includes("geyser repair") || n.includes("geyser service") || n.includes("geyser")) return "గీజర్ రిపేర్ & సర్వీస్";
+  if (n.includes("microwave") || n.includes("oven")) return "మైక్రోవేవ్ ఒవెన్ రిపేర్";
+  if (n.includes("ro candle") || n.includes("candle changing")) return "RO క్యాండిల్ మార్పిడి";
+  if (n.includes("water purifier") || n.includes("ro repair") || n.includes("ro service")) return "వాటర్ ప్యూరిఫైయర్ (RO) సర్వీస్";
+  if (n.includes("cooler")) return "కూలర్ రిపేర్ సర్వీస్";
 
-  if (n.includes("door lock") || n.includes("latch")) return "డోర్ లాక్ ఇన్స్టాలేషన్";
-  if (n.includes("door installation") || n.includes("door install")) return "డోర్ ఇన్స్టాలేషన్";
-  if (n.includes("door alignment") || n.includes("door repair")) return "డోర్ అలైన్‌మెంట్ / రిపేర్";
-  if (n.includes("cabinet") || n.includes("drawer") || n.includes("hinge")) return "క్యాబినెట్ & డ్రాయర్ రిపేర్";
+  // --- Carpentry & Furniture Subcategories & Tasks ---
+  if (n.includes("door lock") || n.includes("latch repair") || n.includes("latch")) return "డోర్ లాక్ & లాచ్ రిపేర్";
+  if (n.includes("door installation") || n.includes("door install")) return "డోర్ ఇన్‌స్టాలేషన్";
+  if (n.includes("door alignment") || n.includes("door shaving") || n.includes("door repair")) return "డోర్ అలైన్‌మెంట్ / రిపేర్";
+  if (n.includes("window repair") || n.includes("window fix")) return "విండో రిపేర్ & ఫిట్టింగ్";
+  if (n.includes("cabinet") || n.includes("drawer") || n.includes("hinge")) return "క్యాబినెట్ & డ్రాయర్ హింజ్ రిపేర్";
+  if (n.includes("wardrobe") || n.includes("cupboard")) return "వార్డ్‌రోబ్ / అల్మారా రిపేర్";
+  if (n.includes("modular kitchen")) return "మాడ్యులర్ కిచెన్ రిపేర్";
+  if (n.includes("cot assembly") || n.includes("cot")) return "మంచం (కాట్) అసెంబ్లీ";
+  if (n.includes("dining table") || n.includes("table repair")) return "డైనింగ్ టేబుల్ రిపేర్";
   if (n.includes("bed") || n.includes("furniture assembly")) return "బెడ్ & ఫర్నిచర్ అసెంబ్లీ";
-  if (n.includes("wooden door")) return "చెక్క డోర్ ఫిట్టింగ్ పనులు";
+  if (n.includes("furniture shifting") || n.includes("shifting")) return "ఫర్నిచర్ షిఫ్టింగ్ & తరలింపు";
+  if (n.includes("wooden door") || n.includes("wood work")) return "చెక్క డోర్ ఫిట్టింగ్ పనులు";
+  if (n.includes("wooden shelf") || n.includes("shelf") || n.includes("rack")) return "వుడెన్ షెల్ఫ్ & ర్యాక్ ఫిట్టింగ్";
+  if (n.includes("complete carpenter") || n.includes("carpenter visit")) return "పూర్తి కార్పెంటర్ విజిట్ & తనిఖీ";
+  if (n.includes("mesh door") || n.includes("mosquito mesh")) return "దోమల మెష్ & నెట్ ఫిట్టింగ్";
 
-  if (n.includes("wall patch") || n.includes("wall putty") || n.includes("waterproofing")) return "వాల్ పుట్టీ అప్లికేషన్";
-  if (n.includes("single room") || n.includes("interior emulsion") || n.includes("interior painting")) return "ఇంటీరియర్ ఎమల్షన్ పెయింటింగ్";
-  if (n.includes("interior wall touchup")) return "ఇంటీరియర్ వాల్ టచ్‌అప్‌లు";
-  if (n.includes("exterior painting") || n.includes("exterior paint")) return "ఎక్స్‌టీరియర్ పెయింటింగ్";
-  if (n.includes("paint inspection") || n.includes("house paint")) return "ఇంటి పెయింట్ తనిఖీ సేవ";
+  // --- Painting & Waterproofing Subcategories & Tasks ---
+  if (n.includes("wall patch") || n.includes("wall putty") || n.includes("putty")) return "వాల్ పుట్టీ అప్లికేషన్";
+  if (n.includes("texture painting") || n.includes("texture")) return "టెక్స్చర్ పెయింటింగ్ డిజైన్";
+  if (n.includes("primer")) return "ప్రైమర్ అప్లికేషన్";
+  if (n.includes("door painting")) return "డోర్ పెయింటింగ్";
+  if (n.includes("window painting")) return "విండో పెయింటింగ్";
+  if (n.includes("grill painting") || n.includes("grill")) return "గ్రిల్ పెయింటింగ్";
+  if (n.includes("waterproof") || n.includes("waterproofing")) return "వాటర్‌ప్రూఫ్ కోటింగ్";
+  if (n.includes("metal enamel") || n.includes("enamel")) return "మెటల్ ఎనామిల్ పెయింటింగ్";
+  if (n.includes("wood polish") || n.includes("varnish")) return "వుడ్ పాలిష్ వర్క్";
+  if (n.includes("wood painting") || n.includes("wood paint")) return "వుడ్ పెయింటింగ్";
+  if (n.includes("single room") || n.includes("interior emulsion") || n.includes("interior painting") || n.includes("interior wall")) return "ఇంటీరియర్ ఎమల్షన్ పెయింటింగ్";
+  if (n.includes("interior wall touchup") || n.includes("wall touchup") || n.includes("touchup")) return "ఇంటీరియర్ వాల్ టచ్‌అప్‌లు";
+  if (n.includes("exterior painting") || n.includes("exterior paint") || n.includes("outer wall")) return "ఎక్స్‌టీరియర్ పెయింటింగ్";
+  if (n.includes("paint inspection") || n.includes("house paint") || n.includes("full house paint")) return "ఇంటి పెయింట్ తనిఖీ సేవ";
 
-  if (n.includes("switchboard") || n.includes("switch replacement") || n.includes("switch")) return "స్విచ్ మార్పిడి";
-  if (n.includes("socket")) return "సాకెట్ ఇన్స్టాలేషన్";
-  if (n.includes("ceiling fan") || n.includes("fan installation") || n.includes("fan")) return "ఫ్యాన్ ఇన్స్టాలేషన్";
-  if (n.includes("mcb") || n.includes("fuse")) return "MCB & ఫ్యూజ్ మార్పిడి";
-  if (n.includes("light fitting") || n.includes("chandelier")) return "లైటింగ్ & ఫిట్టింగ్ పనులు";
+  // --- Electrical Subcategories & Tasks ---
+  if (n.includes("switch replacement") || n.includes("switchboard") || n.includes("switch")) return "స్విచ్ మార్పిడి & రిపేర్";
+  if (n.includes("socket installation") || n.includes("socket")) return "సాకెట్ ఇన్‌స్టాలేషన్";
+  if (n.includes("tube light")) return "ట్యూబ్‌లైట్ ఇన్‌స్టాలేషన్";
+  if (n.includes("led") || n.includes("led light")) return "LED లైట్ ఇన్‌స్టాలేషన్";
+  if (n.includes("chandelier") || n.includes("light fitting")) return "షాన్డిలియర్ & లైటింగ్ ఫిట్టింగ్";
+  if (n.includes("ceiling fan repair") || n.includes("fan repair")) return "సీలింగ్ ఫ్యాన్ రిపేర్";
+  if (n.includes("fan installation") || n.includes("ceiling fan") || n.includes("fan mounting") || n.includes("fan")) return "సీలింగ్ ఫ్యాన్ ఇన్‌స్టాలేషన్";
+  if (n.includes("mcb") || n.includes("fuse") || n.includes("short circuit") || n.includes("tripping")) return "MCB & ఫ్యూజ్ మార్పిడి";
+  if (n.includes("distribution board") || n.includes("db service")) return "డిస్ట్రిబ్యూషన్ బోర్డ్ (DB) సర్వీస్";
+  if (n.includes("new wiring")) return "కొత్త వైరింగ్ ఇన్‌స్టాలేషన్";
+  if (n.includes("wiring repair") || n.includes("wiring")) return "వైరింగ్ రిపేర్ & కేబులింగ్";
+  if (n.includes("inverter installation")) return "ఇన్వర్టర్ ఇన్‌స్టాలేషన్";
+  if (n.includes("inverter checking") || n.includes("inverter")) return "ఇన్వర్టర్ తనిఖీ & సర్వీస్";
+  if (n.includes("earthing")) return "ఎర్తింగ్ వర్క్ & సేఫ్టీ";
+  if (n.includes("electrical inspection") || n.includes("home electrical")) return "పూర్తి ఇంటి ఎలక్ట్రికల్ తనిఖీ";
 
-  if (n.includes("tap / faucet") || n.includes("tap/faucet") || n.includes("tap leakage") || n.includes("faucet")) return "టాప్/ఫాసెట్ ఇన్స్టాలేషన్";
-  if (n.includes("wash basin") || n.includes("washbasin")) return "వాష్ బేసిన్ ఇన్స్టాలేషన్";
-  if (n.includes("sink installation") || n.includes("sink")) return "సింక్ ఇన్స్టాలేషన్";
-  if (n.includes("pipe fitting") || n.includes("pipe replacement")) return "పైప్ ఫిట్టింగ్ & మార్పిడి";
-  if (n.includes("blockage removal") || n.includes("drainage")) return "బ్లాకేజ్ తొలగింపు & డ్రైనేజీ";
-  if (n.includes("toilet")) return "టాయిలెట్ ఇన్స్టాలేషన్ & రిపేర్";
+  // --- Handyman & Misc Subcategories & Tasks ---
+  if (n.includes("curtain rod") || n.includes("curtain pipe") || n.includes("curtain")) return "కర్టెన్ రాడ్ ఇన్‌స్టాలేషన్";
+  if (n.includes("tv wall") || n.includes("tv mounting") || n.includes("tv installation") || n.includes("television")) return "టీవీ వాల్ మౌంటింగ్ & ఇన్‌స్టాలేషన్";
+  if (n.includes("picture frame") || n.includes("photo frame")) return "పిక్చర్ / ఫోటో ఫ్రేమ్ ఫిక్సింగ్";
+  if (n.includes("mirror installation") || n.includes("mirror mounting") || n.includes("mirror")) return "మిర్రర్ ఇన్‌స్టాలేషన్";
+  if (n.includes("shelf") || n.includes("wall shelf") || n.includes("rack")) return "వాల్ షెల్ఫ్ & ర్యాక్ ఫిట్టింగ్";
+  if (n.includes("drilling") || n.includes("hanging")) return "వాల్ డ్రిల్లింగ్ & హ్యాంగింగ్ పనులు";
+  if (n.includes("general repair") || n.includes("inspection") || n.includes("visiting")) return "జనరల్ రిపేర్లు / విజిటింగ్ తనిఖీ";
 
-  if (n.includes("curtain rod")) return "కర్టెన్ రాడ్ ఇన్స్టాలేషన్";
-  if (n.includes("tv wall") || n.includes("tv mounting")) return "టీవీ వాల్ మౌంటింగ్";
-  if (n.includes("mirror installation") || n.includes("mirror")) return "మిర్రర్ ఇన్స్టాలేషన్";
-  if (n.includes("general repair") || n.includes("inspection")) return "జనరల్ రిపేర్లు / తనిఖీ";
+  // --- CCTV & Security ---
+  if (n.includes("cctv camera") || n.includes("cctv installation") || n.includes("camera fixing")) return "CCTV కెమెరా ఇన్‌స్టాలేషన్";
+  if (n.includes("dvr") || n.includes("nvr") || n.includes("security camera repair")) return "CCTV & DVR రిపేర్ సర్వీస్";
+
+  // --- Pest Control ---
+  if (n.includes("cockroach") || n.includes("general pest")) return "బొద్దింకలు & జనరల్ పెస్ట్ కంట్రోల్";
+  if (n.includes("termite") || n.includes("anti termite")) return "చెదపురుగుల నివారణ (టెర్మైట్ ట్రీట్మెంట్)";
+  if (n.includes("bed bug") || n.includes("bedbug")) return "నల్లుల నివారణ (బెడ్‌బగ్ కంట్రోల్)";
 
   return rawName;
+}
+
+function getLocalizedServiceType(rawServiceType: string | undefined | null, lang: Language): string {
+  if (!rawServiceType) return "";
+  if (lang !== "te") return rawServiceType;
+
+  // Handle multi-service compounds separated by "+"
+  if (rawServiceType.includes("+")) {
+    return rawServiceType
+      .split("+")
+      .map((p) => getLocalizedServiceType(p.trim(), lang))
+      .join(" + ");
+  }
+
+  // Handle category with subcategory list like "Plumbing services: Tap Leakage, Pipe Repair"
+  if (rawServiceType.includes(":")) {
+    const colonIdx = rawServiceType.indexOf(":");
+    const catPart = rawServiceType.substring(0, colonIdx).trim();
+    const restPart = rawServiceType.substring(colonIdx + 1).trim();
+    const locCat = getLocalizedCategoryNameByString(catPart, lang);
+    const locRest = restPart
+      .split(",")
+      .map((sub) => {
+        const sTrim = sub.trim();
+        const cleanSub = sTrim.replace(/\s*-\s*₹.*$/, "").replace(/\s*\(.*?\)$/, "").trim();
+        return getLocalizedSubcategoryName(cleanSub, lang);
+      })
+      .join(", ");
+    return `${locCat}: ${locRest}`;
+  }
+
+  // Check category match first
+  const locCat = getLocalizedCategoryNameByString(rawServiceType, lang);
+  if (locCat !== rawServiceType) return locCat;
+
+  // Check subcategory match
+  const cleanSub = rawServiceType.replace(/\s*-\s*₹.*$/, "").replace(/\s*\(.*?\)$/, "").trim();
+  const locSub = getLocalizedSubcategoryName(cleanSub, lang);
+  if (locSub !== cleanSub) return locSub;
+
+  return rawServiceType;
 }
 
 const DEFAULT_CATEGORIES: Category[] = [
@@ -344,8 +462,41 @@ export default function CustomerPortal({
     } catch (e) {}
     return true;
   });
-  const [selectedCats, setSelectedCats] = useState<Category[]>([]);
-  const [selectedSubcategories, setSelectedSubcategories] = useState<Record<string, SubCategoryItem[]>>({});
+  const [selectedCats, setSelectedCats] = useState<Category[]>(() => {
+    try {
+      const saved = localStorage.getItem("fix_home_selected_cats");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+  const [selectedSubcategories, setSelectedSubcategories] = useState<Record<string, SubCategoryItem[]>>(() => {
+    try {
+      const saved = localStorage.getItem("fix_home_selected_subcats");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === "object") return parsed;
+      }
+    } catch (e) {}
+    return {};
+  });
+
+  // Persist in-progress booking selections so they survive an app
+  // background/foreground cycle where the WebView gets reloaded
+  // (e.g. Android reclaiming memory after switching to another app).
+  useEffect(() => {
+    try {
+      localStorage.setItem("fix_home_selected_cats", JSON.stringify(selectedCats));
+    } catch (e) {}
+  }, [selectedCats]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("fix_home_selected_subcats", JSON.stringify(selectedSubcategories));
+    } catch (e) {}
+  }, [selectedSubcategories]);
 
   const toggleCategorySelection = (cat: Category) => {
     const isCurrentlySelected = selectedCats.some((c) => c.id === cat.id);
@@ -442,10 +593,34 @@ export default function CustomerPortal({
       return { minDiscount: minD, maxDiscount: maxD };
     }
   };
-  const [bookingStep, setBookingStep] = useState<"services" | "details">("services");
+  const [bookingStep, setBookingStep] = useState<"services" | "details">(() => {
+    try {
+      const saved = localStorage.getItem("fix_home_booking_step");
+      if (saved === "services" || saved === "details") return saved;
+    } catch (e) {}
+    return "services";
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("fix_home_booking_step", bookingStep);
+    } catch (e) {}
+  }, [bookingStep]);
 
   // User Portal Tab & Account Credential States
-  const [customerPortalTab, setCustomerPortalTab] = useState<"book" | "account">("book");
+  const [customerPortalTab, setCustomerPortalTab] = useState<"book" | "account">(() => {
+    try {
+      const saved = localStorage.getItem("fix_home_portal_tab");
+      if (saved === "book" || saved === "account") return saved;
+    } catch (e) {}
+    return "book";
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("fix_home_portal_tab", customerPortalTab);
+    } catch (e) {}
+  }, [customerPortalTab]);
   const [userNameInput, setUserNameInput] = useState<string>(() => localStorage.getItem("fix_home_user_name") || "Rajesh Kumar");
   const [userPhoneInput, setUserPhoneInput] = useState<string>(() => localStorage.getItem("fix_home_user_mobile") || "9876543210");
   const [userPasswordInput, setUserPasswordInput] = useState<string>("");
@@ -592,6 +767,12 @@ export default function CustomerPortal({
   const [activeBooking, setActiveBooking] = useState<Booking | null>(null);
   const [viewingTracker, setViewingTracker] = useState<boolean>(false);
   const [refreshingTracker, setRefreshingTracker] = useState<boolean>(false);
+
+  // Cancellation States
+  const [showCancelModal, setShowCancelModal] = useState<boolean>(false);
+  const [isCancellingBooking, setIsCancellingBooking] = useState<boolean>(false);
+  const [cancelError, setCancelError] = useState<string>("");
+  const [cancelSuccessToast, setCancelSuccessToast] = useState<string>("");
 
   // Specialist Direct Call Helpers
   const getWorkerDisplayPhone = (booking?: Booking | null) => {
@@ -895,28 +1076,26 @@ export default function CustomerPortal({
     };
   });
 
-  // Back-Stack Navigation Controller (Popping modals and sub-views on device/browser back button)
+  // Keep native shell (App.js) instantly notified of whether user is in a sub-view or at the root
   useEffect(() => {
-    // Reset any armed exit timer whenever user lands on or returns to the clean Services root
-    if (
-      customerPortalTab === "book" &&
-      bookingStep === "services" &&
-      !viewingTracker &&
-      !gpsModalOpen &&
-      !historyModalOpen &&
-      !isEditingProfile &&
-      !viewingFullPrivacy
-    ) {
-      (window as any).__resetExitTimer?.();
-    }
+    const isSubView = Boolean(
+      gpsModalOpen ||
+      historyModalOpen ||
+      viewingTracker ||
+      viewingFullPrivacy ||
+      isEditingProfile ||
+      bookingStep !== "services" ||
+      customerPortalTab !== "book"
+    );
+    notifyNativeBackState(isSubView);
   }, [
-    customerPortalTab,
-    bookingStep,
-    viewingTracker,
     gpsModalOpen,
     historyModalOpen,
-    isEditingProfile,
+    viewingTracker,
     viewingFullPrivacy,
+    isEditingProfile,
+    bookingStep,
+    customerPortalTab,
   ]);
 
   useEffect(() => {
@@ -928,14 +1107,17 @@ export default function CustomerPortal({
       // 1. Modals (close any open modal)
       if (current.gpsModalOpen) {
         setGpsModalOpen(false);
+        notifyNativeBackState(false);
         return true;
       }
       if (current.historyModalOpen) {
         setHistoryModalOpen(false);
+        notifyNativeBackState(false);
         return true;
       }
       if (current.isEditingProfile) {
         setIsEditingProfile(false);
+        notifyNativeBackState(false);
         return true;
       }
       if (current.viewingTracker) {
@@ -943,16 +1125,19 @@ export default function CustomerPortal({
         setBookingStep("services");
         setSelectedCats([]);
         setSelectedSubcategories({});
+        notifyNativeBackState(false);
         return true;
       }
       if (current.viewingFullPrivacy) {
         setViewingFullPrivacy(false);
+        notifyNativeBackState(false);
         return true;
       }
 
       // 2. Booking Step (Step 2 Details -> Step 1 Services)
       if (current.bookingStep === "details") {
         setBookingStep("services");
+        notifyNativeBackState(false);
         return true;
       }
 
@@ -960,15 +1145,32 @@ export default function CustomerPortal({
       if (current.customerPortalTab === "account") {
         setCustomerPortalTab("book");
         setBookingStep("services");
+        notifyNativeBackState(false);
         return true;
       }
 
       // 4. At Root Services Page (let root 2-tap exit handler handle it)
+      notifyNativeBackState(false);
       return false;
+    };
+
+    (window as any).__syncNativeBackState = () => {
+      const current = navStateRef.current;
+      const isSubView = Boolean(
+        current.gpsModalOpen ||
+        current.historyModalOpen ||
+        current.viewingTracker ||
+        current.viewingFullPrivacy ||
+        current.isEditingProfile ||
+        current.bookingStep !== "services" ||
+        current.customerPortalTab !== "book"
+      );
+      notifyNativeBackState(isSubView);
     };
 
     return () => {
       delete (window as any).__customerPortalBack;
+      delete (window as any).__syncNativeBackState;
     };
   }, []);
 
@@ -1300,12 +1502,8 @@ export default function CustomerPortal({
   };
 
   const handleConfirmGpsPermission = () => {
-    logNav("CustomerPortal", "handleConfirmGpsPermission", { state: window.history.state });
-    if (window.history.state?.modal === "gps") {
-      window.history.back();
-    } else {
-      setGpsModalOpen(false);
-    }
+    logNav("CustomerPortal", "handleConfirmGpsPermission");
+    setGpsModalOpen(false);
     setLocating(true);
     setGpsStatusText("Locking onto satellite & Wi-Fi GPS location...");
 
@@ -1650,6 +1848,111 @@ export default function CustomerPortal({
     setBookingStep("services");
   };
 
+  const handleCancelBooking = async () => {
+    if (!activeBooking) return;
+    if (activeBooking.status !== "Pending" || activeBooking.assigned_worker_id || activeBooking.assigned_worker_name) {
+      setCancelError(
+        currentLanguage === "te"
+          ? "టెక్నీషియన్ కేటాయించిన తర్వాత సేవను రద్దు చేయలేరు."
+          : "Service cannot be cancelled after a technician has been assigned."
+      );
+      return;
+    }
+
+    setIsCancellingBooking(true);
+    setCancelError("");
+    try {
+      const res = await fetch(`/api/bookings/${activeBooking.request_id}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setCancelError(data.error || "Failed to cancel service request.");
+        return;
+      }
+
+      // Sync cancellation to Firestore if available
+      try {
+        if (data.booking) {
+          syncBookingToFirestore(data.booking);
+        }
+      } catch (e) {}
+
+      // Update LocalStorage records
+      try {
+        const raw = localStorage.getItem("fix_home_all_bookings");
+        if (raw) {
+          const list: Booking[] = JSON.parse(raw);
+          const updatedList = list.map((b) =>
+            b.request_id === activeBooking.request_id
+              ? {
+                  ...b,
+                  status: "Cancelled" as const,
+                  mobile_number: null,
+                  address: null,
+                  latitude: null,
+                  longitude: null,
+                  google_maps_url: null,
+                  landmark: null,
+                  additional_notes: null,
+                  is_personal_data_deleted: true
+                }
+              : b
+          );
+          localStorage.setItem("fix_home_all_bookings", JSON.stringify(updatedList));
+        }
+      } catch (e) {}
+
+      // Update User history if logged in
+      const currentMobile = localStorage.getItem("fix_home_user_mobile") || userMobile;
+      if (currentMobile) {
+        fetchUserHistory(currentMobile);
+      }
+
+      // Close modal and set success message
+      setShowCancelModal(false);
+      setCancelSuccessToast(
+        currentLanguage === "te"
+          ? "సర్వీస్ అభ్యర్థన రద్దు చేయబడింది. మీ వ్యక్తిగత వివరాలు రికార్డుల నుండి తొలగించబడ్డాయి."
+          : "Service request cancelled. Customer personal details have been automatically deleted."
+      );
+      setTimeout(() => setCancelSuccessToast(""), 6000);
+
+      // Update activeBooking state
+      if (data.booking) {
+        setActiveBooking(data.booking);
+      } else {
+        setActiveBooking({
+          ...activeBooking,
+          status: "Cancelled",
+          mobile_number: null,
+          address: null,
+          is_personal_data_deleted: true
+        });
+      }
+
+      // Broadcast status update event
+      window.dispatchEvent(
+        new CustomEvent("fix_home_status_updated", {
+          detail: {
+            bookingId: activeBooking.request_id,
+            status: "Cancelled"
+          }
+        })
+      );
+    } catch (err: any) {
+      setCancelError(
+        currentLanguage === "te"
+          ? "నెట్‌వర్క్ లోపం. దయచేసి మళ్ళీ ప్రయత్నించండి."
+          : "Network error while cancelling booking. Please try again."
+      );
+    } finally {
+      setIsCancellingBooking(false);
+    }
+  };
+
   const renderFooter = () => {
     return (
       <footer className="fixed bottom-0 left-0 right-0 z-50 bg-slate-900 text-white border-t border-slate-800 shadow-2xl px-4 pt-2 safe-bottom-nav">
@@ -1747,12 +2050,8 @@ export default function CustomerPortal({
           <PrivacyPolicy 
             showBackHeader={true} 
             onBack={() => {
-              logNav("CustomerPortal", "PrivacyPolicy onBack clicked", { state: window.history.state });
-              if (window.history.state?.modal === "privacy") {
-                window.history.back();
-              } else {
-                setViewingFullPrivacy(false);
-              }
+              logNav("CustomerPortal", "PrivacyPolicy onBack clicked");
+              setViewingFullPrivacy(false);
             }} 
           />
         </div>
@@ -1844,35 +2143,106 @@ export default function CustomerPortal({
             </button>
           </div>
 
-          {/* ACTIVE STATUS BANNER */}
-          <div className="bg-slate-900 text-white p-4 sm:p-5 rounded-2xl shadow-md space-y-3 relative overflow-hidden">
-            <div className="flex items-center justify-between relative z-10">
-              <span className="bg-[#65a30d] text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider">
-                {isTe ? "స్థితి:" : "Status:"} {activeBooking.status}
-              </span>
-              <span className="text-[10px] font-mono text-slate-300">
-                ID: {activeBooking.request_id.slice(0, 13)}...
-              </span>
+          {/* CANCEL SUCCESS TOAST / BANNER */}
+          {cancelSuccessToast && (
+            <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-3 rounded-2xl flex items-center gap-3 text-xs font-semibold shadow-xs animate-in fade-in duration-300">
+              <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+              <span>{cancelSuccessToast}</span>
             </div>
+          )}
 
-            <div className="space-y-1 relative z-10">
-              <h3 className="text-lg font-bold text-white tracking-tight">
-                {activeBooking.status === "Pending" && (isTe ? "సిస్టమ్‌లో అభ్యర్థన నమోదు చేయబడింది" : "Request Logged in System")}
-                {activeBooking.status === "Assigned" && (isTe ? "టెక్నీషియన్ బయలుదేరారు" : "Technician Dispatched")}
-                {activeBooking.status === "In Progress" && (isTe ? "మీ చిరునామా వద్ద పని జరుగుతోంది" : "Repair Underway at Your Address")}
-                {activeBooking.status === "Completed" && (isTe ? "సేవ విజయవంతంగా పూర్తయింది" : "Service Successfully Completed")}
-              </h3>
-              <p className="text-xs text-slate-300 font-medium">
-                {activeBooking.status === "Pending" && (isTe ? "మా ప్రతినిధి మిమ్మల్ని త్వరలోనే సంప్రదిస్తారు" : "our agent will contact you in a while")}
-                {activeBooking.status === "Assigned" && (isTe ? "ఒక నిపుణుడైన టెక్నీషియన్ కేటాయించబడ్డారు మరియు మీ లొకేషన్‌కి బయలుదేరారు." : "An expert technician is assigned and en route to your provided landmark.")}
-                {activeBooking.status === "In Progress" && (isTe ? "టెక్నీషియన్ మీ వద్ద రిపేర్ పని చేస్తున్నారు." : "Technician is on site performing repairs. Please stand by.")}
-                {activeBooking.status === "Completed" && (isTe ? "ఫిక్స్ హోమ్ సేవలను ఉపయోగించినందుకు ధన్యవాదాలు! మీ రిపేర్ పూర్తయింది." : "Thank you for using FixHome! Your repair is finished.")}
+          {/* ACTIVE STATUS BANNER */}
+          {activeBooking.status === "Cancelled" ? (
+            <div className="bg-rose-950 text-rose-100 p-4 sm:p-5 rounded-2xl shadow-md space-y-3 relative overflow-hidden border border-rose-800/80">
+              <div className="flex items-center justify-between relative z-10">
+                <span className="bg-rose-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider">
+                  {isTe ? "రద్దు చేయబడింది" : "Cancelled"}
+                </span>
+                <span className="text-[10px] font-mono text-rose-300">
+                  ID: {activeBooking.request_id.slice(0, 13)}...
+                </span>
+              </div>
+
+              <div className="space-y-1 relative z-10">
+                <h3 className="text-lg font-bold text-white tracking-tight">
+                  {isTe ? "సర్వీస్ అభ్యర్థన రద్దు చేయబడింది" : "Service Request Cancelled"}
+                </h3>
+                <p className="text-xs text-rose-200 font-medium">
+                  {isTe 
+                    ? "ఈ సర్వీస్ అభ్యర్థన రద్దు చేయబడింది. మీ వ్యక్తిగత ఫోన్ మరియు లొకేషన్ వివరాలు డేటాబేస్ నుండి శాశ్వతంగా తొలగించబడ్డాయి." 
+                    : "This service request was cancelled. Customer contact & location details were permanently deleted from the database."}
+                </p>
+              </div>
+
+              <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-rose-600/20 rounded-full blur-xl pointer-events-none"></div>
+            </div>
+          ) : (
+            <div className="bg-slate-900 text-white p-4 sm:p-5 rounded-2xl shadow-md space-y-3 relative overflow-hidden">
+              <div className="flex items-center justify-between relative z-10">
+                <span className="bg-[#65a30d] text-white text-[10px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider">
+                  {isTe ? "స్థితి:" : "Status:"} {activeBooking.status}
+                </span>
+                <span className="text-[10px] font-mono text-slate-300">
+                  ID: {activeBooking.request_id.slice(0, 13)}...
+                </span>
+              </div>
+
+              <div className="space-y-1 relative z-10">
+                <h3 className="text-lg font-bold text-white tracking-tight">
+                  {activeBooking.status === "Pending" && (isTe ? "సిస్టమ్‌లో అభ్యర్థన నమోదు చేయబడింది" : "Request Logged in System")}
+                  {activeBooking.status === "Assigned" && (isTe ? "టెక్నీషియన్ బయలుదేరారు" : "Technician Dispatched")}
+                  {activeBooking.status === "In Progress" && (isTe ? "మీ చిరునామా వద్ద పని జరుగుతోంది" : "Repair Underway at Your Address")}
+                  {activeBooking.status === "Completed" && (isTe ? "సేవ విజయవంతంగా పూర్తయింది" : "Service Successfully Completed")}
+                </h3>
+                <p className="text-xs text-slate-300 font-medium">
+                  {activeBooking.status === "Pending" && (isTe ? "మా ప్రతినిధి మిమ్మల్ని త్వరలోనే సంప్రదిస్తారు" : "our agent will contact you in a while")}
+                  {activeBooking.status === "Assigned" && (isTe ? "ఒక నిపుణుడైన టెక్నీషియన్ కేటాయించబడ్డారు మరియు మీ లొకేషన్‌కి బయలుదేరారు." : "An expert technician is assigned and en route to your provided landmark.")}
+                  {activeBooking.status === "In Progress" && (isTe ? "టెక్నీషియన్ మీ వద్ద రిపేర్ పని చేస్తున్నారు." : "Technician is on site performing repairs. Please stand by.")}
+                  {activeBooking.status === "Completed" && (isTe ? "ఫిక్స్ హోమ్ సేవలను ఉపయోగించినందుకు ధన్యవాదాలు! మీ రిపేర్ పూర్తయింది." : "Thank you for using FixHome! Your repair is finished.")}
+                </p>
+              </div>
+
+              {/* Subtle visual glow */}
+              <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-[#65a30d]/20 rounded-full blur-xl pointer-events-none"></div>
+            </div>
+          )}
+
+          {/* PRE-ASSIGNMENT CANCELLATION ACTION CARD */}
+          {activeBooking.status === "Pending" && !activeBooking.assigned_worker_id && !activeBooking.assigned_worker_name && (
+            <div className="bg-rose-50/90 border border-rose-200 rounded-2xl p-4 text-left space-y-2.5 shadow-2xs">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0 border border-rose-200">
+                    <X size={18} className="stroke-[2.5]" />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="text-xs font-bold text-rose-900 leading-tight">
+                      {isTe ? "సేవను రద్దు చేయాలనుకుంటున్నారా?" : "Cancel Service Request?"}
+                    </h4>
+                    <p className="text-[11px] text-rose-700 font-medium truncate">
+                      {isTe ? "టెక్నీషియన్ కేటాయించే వరకు రద్దు చేసుకోవచ్చు" : "Available before technician is assigned"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCancelError("");
+                    setShowCancelModal(true);
+                  }}
+                  className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer border-none flex items-center gap-1 shrink-0"
+                >
+                  <X size={14} />
+                  <span>{isTe ? "రద్దు చేయండి" : "Cancel"}</span>
+                </button>
+              </div>
+              <p className="text-[10px] text-rose-600 leading-normal border-t border-rose-200/60 pt-2">
+                {isTe
+                  ? "🔒 రద్దు చేసిన వెంటనే మీ ఫోన్ నంబర్, చిరునామా & లొకేషన్ వివరాలు ఆటోమేటిక్‌గా తొలగించబడతాయి."
+                  : "🔒 Customer phone, address & location details are permanently deleted upon cancellation."}
               </p>
             </div>
-
-            {/* Subtle visual glow */}
-            <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-[#65a30d]/20 rounded-full blur-xl pointer-events-none"></div>
-          </div>
+          )}
 
           {/* ASSIGNED SPECIALIST / WORKER DETAILS CARD */}
           {activeBooking.assigned_worker_name && (
@@ -1894,7 +2264,7 @@ export default function CustomerPortal({
                 />
                 <div className="flex-1 min-w-0">
                   <h4 className="text-sm font-bold text-slate-900">{activeBooking.assigned_worker_name}</h4>
-                  <p className="text-xs text-slate-600 font-medium">{activeBooking.service_type} Expert</p>
+                  <p className="text-xs text-slate-600 font-medium">{getLocalizedServiceType(activeBooking.service_type, currentLanguage)} {isTe ? "నిపుణుడు" : "Expert"}</p>
                   <button
                     type="button"
                     onClick={() => triggerCallWorker(undefined, activeBooking)}
@@ -1975,7 +2345,7 @@ export default function CustomerPortal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div>
                 <span className="text-[10px] text-slate-400 font-bold uppercase block">{isTe ? "సేవ వర్గం" : "Service Type"}</span>
-                <span className="font-bold text-[#1e293b]">{activeBooking.service_type}</span>
+                <span className="font-bold text-[#1e293b]">{getLocalizedServiceType(activeBooking.service_type, currentLanguage)}</span>
               </div>
 
               <div>
@@ -2028,9 +2398,16 @@ export default function CustomerPortal({
           {activeBooking.status === "Completed" ? (
             <button
               onClick={handleDismissActiveBooking}
-              className="w-full py-3.5 bg-[#65a30d] hover:bg-[#52840a] text-white rounded-xl font-bold shadow-md text-xs uppercase tracking-wider transition-all"
+              className="w-full py-3.5 bg-[#65a30d] hover:bg-[#52840a] text-white rounded-xl font-bold shadow-md text-xs uppercase tracking-wider transition-all cursor-pointer border-none"
             >
               {isTe ? "పూర్తయింది & కొత్త సేవను బుక్ చేయండి" : "Finish & Book New Service"}
+            </button>
+          ) : activeBooking.status === "Cancelled" ? (
+            <button
+              onClick={handleDismissActiveBooking}
+              className="w-full py-3.5 bg-[#65a30d] hover:bg-[#52840a] text-white rounded-xl font-bold shadow-md text-xs uppercase tracking-wider transition-all cursor-pointer border-none"
+            >
+              {isTe ? "కొత్త సేవను బుక్ చేయండి" : "Book A New Service"}
             </button>
           ) : (
             <div className="flex gap-2">
@@ -2042,13 +2419,13 @@ export default function CustomerPortal({
                   setSelectedCats([]);
                   setSelectedSubcategories({});
                 }}
-                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold text-xs transition-all"
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold text-xs transition-all cursor-pointer border-none"
               >
                 {isTe ? "సేవల జాబితాను చూడండి" : "View Service List"}
               </button>
               <button
                 onClick={handleDismissActiveBooking}
-                className="py-3 px-4 border border-rose-200 text-rose-600 hover:bg-rose-50 rounded-xl font-bold text-xs transition-all"
+                className="py-3 px-4 border border-rose-200 text-rose-600 hover:bg-rose-50 rounded-xl font-bold text-xs transition-all cursor-pointer"
               >
                 {isTe ? "ట్రాకర్ క్లియర్ చేయండి" : "Clear Tracker"}
               </button>
@@ -2056,6 +2433,72 @@ export default function CustomerPortal({
           )}
         </div>
       </div>
+
+      {/* CANCELLATION CONFIRMATION MODAL */}
+      {showCancelModal && activeBooking && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200 text-left">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0 border border-rose-200">
+                <AlertCircle size={24} className="stroke-[2.5]" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 leading-tight">
+                  {isTe ? "సర్వీస్ అభ్యర్థనను రద్దు చేయాలా?" : "Cancel Service Request?"}
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  ID: #{activeBooking.request_id.slice(0, 10)}...
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 space-y-1.5">
+              <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                <ShieldCheck size={14} className="text-amber-700 shrink-0" />
+                <span>{isTe ? "తక్షణ డేటా తొలగింపు & అడ్మిన్ నోటిఫికేషన్" : "Instant PII Deletion & Admin Alert"}</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-amber-900/90">
+                {isTe
+                  ? "మీరు రద్దు చేసిన వెంటనే మీ మొబైల్ నంబర్, చిరునామా మరియు GPS లొకేషన్ వివరాలు మా డేటాబేస్ నుండి శాశ్వతంగా తొలగించబడతాయి. అలాగే అడ్మిన్ టెలిగ్రామ్‌కు తక్షణ నోటిఫికేషన్ పంపబడుతుంది."
+                  : "Upon cancellation, your phone number, physical address, and GPS coordinates will be permanently and automatically deleted from the database. A cancellation alert will also be sent to the admin via Telegram."}
+              </p>
+            </div>
+
+            {cancelError && (
+              <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs p-2.5 rounded-xl font-medium">
+                {cancelError}
+              </div>
+            )}
+
+            <div className="flex gap-2.5 pt-1">
+              <button
+                type="button"
+                disabled={isCancellingBooking}
+                onClick={() => setShowCancelModal(false)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-all cursor-pointer border-none"
+              >
+                {isTe ? "వద్దు, ఉంచండి" : "No, Keep Booking"}
+              </button>
+              <button
+                type="button"
+                disabled={isCancellingBooking}
+                onClick={handleCancelBooking}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold rounded-xl text-xs transition-all cursor-pointer border-none flex items-center justify-center gap-1.5 shadow-sm"
+              >
+                {isCancellingBooking ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" />
+                    <span>{isTe ? "రద్దు చేస్తోంది..." : "Cancelling..."}</span>
+                  </>
+                ) : (
+                  <span>{isTe ? "అవును, రద్దు చేయండి" : "Yes, Cancel Request"}</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {renderFooter()}
     </>
   );
@@ -2485,14 +2928,16 @@ export default function CustomerPortal({
                   >
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <span className="font-extrabold text-slate-900 text-sm">
-                        {h.service_type}
+                        {getLocalizedServiceType(h.service_type, currentLanguage)}
                       </span>
                       <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase ${
                         h.status === "Completed" ? "bg-emerald-100 text-emerald-800" :
                         h.status === "Assigned" ? "bg-blue-100 text-blue-800" :
                         "bg-amber-100 text-amber-800"
                       }`}>
-                        {h.status}
+                        {h.status === "Completed" ? (isTe ? "పూర్తయింది" : "Completed") :
+                         h.status === "Assigned" ? (isTe ? "కేటాయించబడింది" : "Assigned") :
+                         (isTe ? "పెండింగ్‌లో ఉంది" : h.status)}
                       </span>
                     </div>
 
@@ -2695,7 +3140,11 @@ export default function CustomerPortal({
                   {isTe ? "యాక్టివ్ సర్వీస్ అభ్యర్థన" : "Active Repair Request"}
                 </div>
                 <div className="text-[10px] text-slate-600 truncate">
-                  {isTe ? "హోదా:" : "Status:"} <span className="font-extrabold text-[#65a30d]">{activeBooking.status}</span> ({activeBooking.service_type})
+                  {isTe ? "హోదా:" : "Status:"} <span className="font-extrabold text-[#65a30d]">
+                    {activeBooking.status === "Completed" ? (isTe ? "పూర్తయింది" : "Completed") :
+                     activeBooking.status === "Assigned" ? (isTe ? "కేటాయించబడింది" : "Assigned") :
+                     (isTe ? "పెండింగ్‌లో ఉంది" : activeBooking.status)}
+                  </span> ({getLocalizedServiceType(activeBooking.service_type, currentLanguage)})
                 </div>
               </div>
             </div>
@@ -3005,6 +3454,17 @@ export default function CustomerPortal({
                     );
                   })}
                 </div>
+              </div>
+
+              {/* Pricing Disclaimer */}
+              <div className="p-3.5 bg-amber-50/95 border border-amber-200/90 rounded-xl flex items-start gap-3 text-amber-950 shadow-xs">
+                <Info size={20} className="text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-sm sm:text-[15px] leading-relaxed font-medium">
+                  <span className="font-bold text-amber-900">{isTe ? "గమనిక: " : "Disclaimer: "}</span>
+                  {isTe 
+                    ? "ఇక్కడ పేర్కొన్న ధరలు సర్వీస్ చార్జీలకు మాత్రమే. విడిభాగాలు లేదా పరికరాల (equipment/materials) ఖర్చులు ఇందులో చేర్చబడవు." 
+                    : "The prices mentioned are only for the service and not for the equipment or spare parts."}
+                </p>
               </div>
 
               <div className="flex items-center justify-between bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
@@ -3437,6 +3897,17 @@ export default function CustomerPortal({
             </div>
           )}
 
+          {/* Pricing Disclaimer */}
+          <div className="p-4 bg-amber-50/95 border border-amber-200/90 rounded-xl flex items-start gap-3 text-amber-950 shadow-xs">
+            <Info size={22} className="text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-sm sm:text-[15.5px] leading-relaxed font-medium">
+              <span className="font-bold text-amber-900">{isTe ? "గమనిక: " : "Disclaimer: "}</span>
+              {isTe 
+                ? "ఇక్కడ పేర్కొన్న ధరలు సర్వీస్ చార్జీలకు మాత్రమే. విడిభాగాలు లేదా పరికరాల (materials/equipment) ఖర్చులు ఇందులో చేర్చబడవు." 
+                : "The prices mentioned are only for the service and not for the equipment or spare parts."}
+            </p>
+          </div>
+
           <div className="pt-2">
             <button
               type="submit"
@@ -3505,12 +3976,8 @@ export default function CustomerPortal({
             <div className="flex gap-2.5 pt-2">
               <button
                 onClick={() => {
-                  logNav("CustomerPortal", "Clicked Type Manually in GPS modal", { historyState: window.history.state });
-                  if (window.history.state?.modal === "gps") {
-                    window.history.back();
-                  } else {
-                    setGpsModalOpen(false);
-                  }
+                  logNav("CustomerPortal", "Clicked Type Manually in GPS modal");
+                  setGpsModalOpen(false);
                 }}
                 className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-[#1e293b] text-xs font-bold rounded-xl transition-all"
               >
@@ -3552,12 +4019,8 @@ export default function CustomerPortal({
               </div>
               <button
                 onClick={() => {
-                  logNav("CustomerPortal", "Clicked Close button in History modal", { historyState: window.history.state });
-                  if (window.history.state?.modal === "history") {
-                    window.history.back();
-                  } else {
-                    setHistoryModalOpen(false);
-                  }
+                  logNav("CustomerPortal", "Clicked Close button in History modal");
+                  setHistoryModalOpen(false);
                 }}
                 className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
               >
@@ -3757,7 +4220,7 @@ export default function CustomerPortal({
                         className="p-3 bg-white border border-slate-200 rounded-xl space-y-1.5 text-xs text-left"
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-bold text-slate-900">{h.service_type}</span>
+                          <span className="font-bold text-slate-900">{getLocalizedServiceType(h.service_type, currentLanguage)}</span>
                           <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
                             h.status === "Completed" ? "bg-emerald-100 text-emerald-800" :
                             h.status === "Assigned" ? "bg-blue-100 text-blue-800" :

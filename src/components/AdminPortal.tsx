@@ -132,6 +132,28 @@ const saveLockoutData = (data: AdminLockoutData) => {
   } catch (e) {}
 };
 
+/**
+ * Persistent registry of completed booking IDs across all devices and reloads
+ */
+const getCompletedBookingIds = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem("fix_home_completed_booking_ids");
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch (e) {}
+  return new Set();
+};
+
+const markBookingIdCompletedInStorage = (id: string) => {
+  try {
+    const set = getCompletedBookingIds();
+    set.add(id);
+    localStorage.setItem("fix_home_completed_booking_ids", JSON.stringify(Array.from(set)));
+  } catch (e) {}
+};
+
 const formatTimeRemaining = (ms: number): string => {
   if (ms <= 0) return "00:00";
   const totalSeconds = Math.ceil(ms / 1000);
@@ -176,7 +198,35 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
   const [now, setNow] = useState<number>(Date.now());
 
   // --- DATA STATES ---
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>(() => {
+    try {
+      const completedIds = getCompletedBookingIds();
+      const raw = localStorage.getItem("fix_home_all_bookings");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((b: Booking) => {
+            if (completedIds.has(b.request_id) || b.status?.toLowerCase() === "completed") {
+              return {
+                ...b,
+                status: "Completed" as const,
+                is_personal_data_deleted: true,
+                mobile_number: null,
+                address: null,
+                latitude: null,
+                longitude: null,
+                google_maps_url: null,
+                landmark: null,
+                additional_notes: null
+              };
+            }
+            return b;
+          });
+        }
+      }
+    } catch (e) {}
+    return [];
+  });
   const [categories, setCategories] = useState<Category[]>(() => {
     try {
       const saved = localStorage.getItem("fix_home_cached_categories");
@@ -187,8 +237,26 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
     } catch (e) {}
     return [];
   });
-  const [workers, setWorkers] = useState<Worker[]>([]);
-  const [offers, setOffers] = useState<Offer[]>([]);
+  const [workers, setWorkers] = useState<Worker[]>(() => {
+    try {
+      const saved = localStorage.getItem("fix_home_cached_workers");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+  const [offers, setOffers] = useState<Offer[]>(() => {
+    try {
+      const saved = localStorage.getItem("fix_home_cached_offers");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
   const [loadingBookings, setLoadingBookings] = useState<boolean>(false);
   const [loadingCats, setLoadingCats] = useState<boolean>(false);
   const [loadingWorkers, setLoadingWorkers] = useState<boolean>(false);
@@ -409,7 +477,7 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
     }
   };
 
-  const fetchTelegramConfig = async () => {
+  const fetchTelegramConfig = async (retryCount = 0) => {
     try {
       const cToken = getActiveToken();
       const headers: Record<string, string> = {};
@@ -420,9 +488,45 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
         setHasServerBotToken(data.hasBotToken);
         setTelegramChatId(data.chatId || "");
         setTelegramEnabled(data.enabled !== false);
+        try {
+          localStorage.setItem(
+            "fix_home_telegram_config",
+            JSON.stringify({
+              hasBotToken: data.hasBotToken,
+              chatId: data.chatId || "",
+              enabled: data.enabled !== false
+            })
+          );
+        } catch (e) {}
+      } else {
+        try {
+          const cached = localStorage.getItem("fix_home_telegram_config");
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            setHasServerBotToken(parsed.hasBotToken);
+            setTelegramChatId(parsed.chatId || "");
+            setTelegramEnabled(parsed.enabled !== false);
+          }
+        } catch (e) {}
       }
     } catch (err) {
-      console.error("Error fetching telegram config:", err);
+      console.warn("Telegram config fetch notice (using cache if available):", err);
+      try {
+        const cached = localStorage.getItem("fix_home_telegram_config");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          setHasServerBotToken(parsed.hasBotToken);
+          setTelegramChatId(parsed.chatId || "");
+          setTelegramEnabled(parsed.enabled !== false);
+        }
+      } catch (e) {}
+
+      // Retry once after 2.5s if initial load failed
+      if (retryCount < 1) {
+        setTimeout(() => {
+          fetchTelegramConfig(retryCount + 1);
+        }, 2500);
+      }
     }
   };
 
@@ -489,6 +593,75 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
       setTestingTelegram(false);
     }
   };
+
+  const navStateRef = useRef({
+    shareBooking,
+    confirmPiiDeleteBooking,
+    editingPriceCat,
+    editingCat,
+    editingWorkerId,
+    adminTab,
+    isLoggedIn,
+  });
+
+  useEffect(() => {
+    navStateRef.current = {
+      shareBooking,
+      confirmPiiDeleteBooking,
+      editingPriceCat,
+      editingCat,
+      editingWorkerId,
+      adminTab,
+      isLoggedIn,
+    };
+  });
+
+  useEffect(() => {
+    // Register active back action handler for direct hardware back navigation in AdminPortal
+    (window as any).__adminPortalBack = () => {
+      const current = navStateRef.current;
+      logNav("AdminPortal", "__adminPortalBack invoked", current);
+
+      // 1. Modals & Overlays (close any open admin modal)
+      if (current.shareBooking) {
+        setShareBooking(null);
+        return true;
+      }
+      if (current.confirmPiiDeleteBooking) {
+        setConfirmPiiDeleteBooking(null);
+        return true;
+      }
+      if (current.editingPriceCat) {
+        setEditingPriceCat(null);
+        return true;
+      }
+      if (current.editingCat) {
+        setEditingCat(null);
+        return true;
+      }
+      if (current.editingWorkerId) {
+        setEditingWorkerId(null);
+        return true;
+      }
+
+      // 2. Sub-Tabs (if user is on another admin tab like history, workers, offers, categories -> return to active dispatches)
+      if (current.isLoggedIn && current.adminTab !== "active" && current.adminTab !== "all") {
+        setAdminTab("active");
+        try {
+          window.history.pushState({ fixHomeTab: "admin", section: "active" }, "", "#admin-active");
+          notifyNativeBackState();
+        } catch (e) {}
+        return true;
+      }
+
+      // 3. At Admin root (Active Dispatches or Login Screen) -> return false so App.tsx can switch to customer tab
+      return false;
+    };
+
+    return () => {
+      delete (window as any).__adminPortalBack;
+    };
+  }, []);
 
   useEffect(() => {
     const syncAdminFromState = () => {
@@ -791,9 +964,29 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
     // Subscribe to Firestore real-time changes across all connected devices
     const unsubBookings = subscribeAllBookingsRealtime((allBookings) => {
       setBookings((prev) => {
+        const completedIds = getCompletedBookingIds();
         const bookingMap = new Map<string, Booking>();
         prev.forEach((b) => bookingMap.set(b.request_id, b));
-        allBookings.forEach((b) => bookingMap.set(b.request_id, b));
+        allBookings.forEach((b) => {
+          const local = bookingMap.get(b.request_id);
+          const isCompleted = completedIds.has(b.request_id) || 
+            (local && local.status?.toLowerCase() === "completed") ||
+            b.status?.toLowerCase() === "completed";
+
+          if (isCompleted) {
+            markBookingIdCompletedInStorage(b.request_id);
+            bookingMap.set(b.request_id, {
+              ...(local || {}),
+              ...b,
+              status: "Completed",
+              mobile_number: b.mobile_number || local?.mobile_number || null,
+              address: b.address || local?.address || null,
+              customer_user_phone: b.customer_user_phone || local?.customer_user_phone || b.mobile_number || local?.mobile_number || null
+            });
+          } else {
+            bookingMap.set(b.request_id, { ...(local || {}), ...b });
+          }
+        });
         const merged = Array.from(bookingMap.values()).sort(
           (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
         );
@@ -1054,11 +1247,41 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
       let merged: Booking[] = [];
       if (res.ok) {
         const serverData: Booking[] = await res.json();
+        const completedIds = getCompletedBookingIds();
         
-        // Merge server bookings and local bookings by request_id (server data takes priority)
+        // Merge server bookings and local bookings by request_id (preserving Completed state)
         const bookingMap = new Map<string, Booking>();
-        localBookings.forEach((b) => bookingMap.set(b.request_id, b));
-        serverData.forEach((b) => bookingMap.set(b.request_id, b));
+        localBookings.forEach((b) => {
+          if (completedIds.has(b.request_id) || b.status?.toLowerCase() === "completed") {
+            bookingMap.set(b.request_id, {
+              ...b,
+              status: "Completed"
+            });
+          } else {
+            bookingMap.set(b.request_id, b);
+          }
+        });
+
+        serverData.forEach((b) => {
+          const local = bookingMap.get(b.request_id);
+          const isCompleted = completedIds.has(b.request_id) || 
+            (local && local.status?.toLowerCase() === "completed") ||
+            b.status?.toLowerCase() === "completed";
+
+          if (isCompleted) {
+            markBookingIdCompletedInStorage(b.request_id);
+            bookingMap.set(b.request_id, {
+              ...(local || {}),
+              ...b,
+              status: "Completed",
+              mobile_number: b.mobile_number || local?.mobile_number || null,
+              address: b.address || local?.address || null,
+              customer_user_phone: b.customer_user_phone || local?.customer_user_phone || b.mobile_number || local?.mobile_number || null
+            });
+          } else {
+            bookingMap.set(b.request_id, { ...(local || {}), ...b });
+          }
+        });
 
         merged = Array.from(bookingMap.values()).sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -1072,7 +1295,16 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
       } else {
         // Use local backup if available
         if (localBookings.length > 0) {
-          merged = localBookings.sort(
+          const completedIds = getCompletedBookingIds();
+          merged = localBookings.map((b) => {
+            if (completedIds.has(b.request_id) || b.status?.toLowerCase() === "completed") {
+              return {
+                ...b,
+                status: "Completed" as const
+              };
+            }
+            return b;
+          }).sort(
             (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           );
           setBookings(merged);
@@ -1111,7 +1343,7 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
     }
   };
 
-  const fetchCategories = async (isSilent = false) => {
+  const fetchCategories = async (isSilent = false, retryCount = 0) => {
     if (!isSilent && categories.length === 0) {
       setLoadingCats(true);
     }
@@ -1120,21 +1352,42 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
       const contentType = res.headers.get("content-type");
       if (res.ok && contentType && contentType.includes("application/json")) {
         const data = await res.json();
-        if (Array.isArray(data)) {
+        if (Array.isArray(data) && data.length > 0) {
           setCategories(data);
           try {
             localStorage.setItem("fix_home_cached_categories", JSON.stringify(data));
           } catch (e) {}
         }
+      } else {
+        try {
+          const cached = localStorage.getItem("fix_home_cached_categories");
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) setCategories(parsed);
+          }
+        } catch (e) {}
       }
     } catch (err) {
-      console.error("Error fetching categories:", err);
+      console.warn("Categories fetch notice (using cached backup if available):", err);
+      try {
+        const cached = localStorage.getItem("fix_home_cached_categories");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) setCategories(parsed);
+        }
+      } catch (e) {}
+
+      if (retryCount < 2) {
+        setTimeout(() => {
+          fetchCategories(true, retryCount + 1);
+        }, 2500);
+      }
     } finally {
       setLoadingCats(false);
     }
   };
 
-  const fetchWorkers = async (isSilent = false) => {
+  const fetchWorkers = async (isSilent = false, retryCount = 0) => {
     if (!isSilent && workers.length === 0) {
       setLoadingWorkers(true);
     }
@@ -1145,16 +1398,40 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
         const data = await res.json();
         if (Array.isArray(data)) {
           setWorkers(data);
+          try {
+            localStorage.setItem("fix_home_cached_workers", JSON.stringify(data));
+          } catch (e) {}
         }
+      } else {
+        try {
+          const cached = localStorage.getItem("fix_home_cached_workers");
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) setWorkers(parsed);
+          }
+        } catch (e) {}
       }
     } catch (err) {
-      console.error("Error fetching workers:", err);
+      console.warn("Workers fetch notice (using cached backup if available):", err);
+      try {
+        const cached = localStorage.getItem("fix_home_cached_workers");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) setWorkers(parsed);
+        }
+      } catch (e) {}
+
+      if (retryCount < 2) {
+        setTimeout(() => {
+          fetchWorkers(true, retryCount + 1);
+        }, 2500);
+      }
     } finally {
       setLoadingWorkers(false);
     }
   };
 
-  const fetchOffers = async (isSilent = false) => {
+  const fetchOffers = async (isSilent = false, retryCount = 0) => {
     if (!isSilent && offers.length === 0) {
       setLoadingOffers(true);
     }
@@ -1170,9 +1447,30 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
             window.dispatchEvent(new Event("storage"));
           } catch (e) {}
         }
+      } else {
+        try {
+          const cached = localStorage.getItem("fix_home_cached_offers");
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) setOffers(parsed);
+          }
+        } catch (e) {}
       }
     } catch (err) {
-      console.error("Error fetching offers:", err);
+      console.warn("Offers fetch notice (using cached backup if available):", err);
+      try {
+        const cached = localStorage.getItem("fix_home_cached_offers");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) setOffers(parsed);
+        }
+      } catch (e) {}
+
+      if (retryCount < 2) {
+        setTimeout(() => {
+          fetchOffers(true, retryCount + 1);
+        }, 2500);
+      }
     } finally {
       setLoadingOffers(false);
     }
@@ -1491,34 +1789,43 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
       cleanStatus = rawStatus;
     }
 
-    if (cleanStatus === "completed" || cleanStatus === "Completed") {
-      setStatusNotice(`Dispatch #${bookingId.slice(0, 8)} marked as Completed and transferred to Permanent Booking History.`);
-      setTimeout(() => setStatusNotice(""), 5000);
+    const isCompleted = cleanStatus === "completed" || cleanStatus === "Completed" || cleanStatus.toLowerCase() === "completed";
+    const finalStatus = isCompleted ? "Completed" : cleanStatus;
+
+    // 1. Immediately record in persistent completed storage so filters instantly categorize it into History
+    if (isCompleted) {
+      markBookingIdCompletedInStorage(bookingId);
+      setStatusNotice(`Dispatch #${bookingId.slice(0, 8)} marked as Completed and moved to Booking History.`);
+      setTimeout(() => setStatusNotice(""), 6000);
+      pushAdminNavState("history");
+      setAdminTab("history");
     }
 
-    // 1. Optimistic Update immediately in local state and localStorage
-    setBookings((prev) => {
-      const updatedList = prev.map((b) => {
-        if (b.request_id === bookingId) {
-          if (cleanStatus === "completed" || cleanStatus === "Completed") {
-            return {
-              ...b,
-              status: "Completed" as const,
-              mobile_number: null,
-              address: null,
-              latitude: null,
-              longitude: null,
-              google_maps_url: null,
-              landmark: null,
-              additional_notes: null,
-              is_personal_data_deleted: true,
-              updated_at: new Date().toISOString()
-            };
-          }
-          return { ...b, status: cleanStatus as any, updated_at: new Date().toISOString() };
+    // 2. Synchronously retrieve target booking from current state or localStorage
+    let targetBooking = bookings.find((b) => b.request_id === bookingId);
+    if (!targetBooking) {
+      try {
+        const rawLocal = localStorage.getItem("fix_home_all_bookings");
+        if (rawLocal) {
+          const list: Booking[] = JSON.parse(rawLocal);
+          targetBooking = list.find((b) => b.request_id === bookingId);
         }
-        return b;
-      });
+      } catch (e) {}
+    }
+
+    // 3. Construct the updated booking object immediately (preserving customer info for history)
+    const updatedBooking: Booking = {
+      ...(targetBooking || { request_id: bookingId } as any),
+      status: finalStatus as any,
+      updated_at: new Date().toISOString()
+    };
+
+    // 4. Update React state immediately and write to localStorage
+    setBookings((prev) => {
+      const exists = prev.some((b) => b.request_id === bookingId);
+      const updatedList = exists
+        ? prev.map((b) => (b.request_id === bookingId ? updatedBooking : b))
+        : [updatedBooking, ...prev];
 
       try {
         localStorage.setItem("fix_home_all_bookings", JSON.stringify(updatedList));
@@ -1527,28 +1834,34 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
       return updatedList;
     });
 
-    const targetBooking = bookings.find((b) => b.request_id === bookingId);
-    const serviceType = targetBooking?.service_type || "Home Service";
-    const workerName = targetBooking?.assigned_worker_name;
+    // 5. Update Firestore IMMEDIATELY (direct write ensures realtime listeners don't revert status)
+    try {
+      await syncBookingToFirestore(updatedBooking);
+    } catch (e) {
+      console.warn("Firestore sync warning on status update:", e);
+    }
 
-    // 2. Broadcast status update across tabs for real-time tracking
+    const serviceType = updatedBooking.service_type || "Home Service";
+    const workerName = updatedBooking.assigned_worker_name;
+
+    // 6. Broadcast status update across tabs for real-time tracking
     try {
       if (typeof BroadcastChannel !== "undefined") {
         const bc = new BroadcastChannel("fix_home_channel");
         bc.postMessage({
           type: "STATUS_UPDATED",
           bookingId,
-          status: cleanStatus,
+          status: finalStatus,
           service_type: serviceType,
           assigned_worker_name: workerName,
-          booking: targetBooking ? { ...targetBooking, status: cleanStatus } : null
+          booking: updatedBooking
         });
         bc.close();
       }
     } catch (e) {}
 
     window.dispatchEvent(new CustomEvent("fix_home_status_updated", {
-      detail: targetBooking ? { ...targetBooking, status: cleanStatus } : { request_id: bookingId, status: cleanStatus, service_type: serviceType }
+      detail: updatedBooking
     }));
 
     const currentToken = getActiveToken();
@@ -1563,7 +1876,10 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
           "Content-Type": "application/json",
           Authorization: `Bearer ${currentToken}`
         },
-        body: JSON.stringify({ status: cleanStatus })
+        body: JSON.stringify({
+          status: finalStatus,
+          booking: updatedBooking
+        })
       });
 
       if (res.ok) {
@@ -1571,16 +1887,18 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
         const serverUpdatedBooking: Booking | undefined = data.booking;
 
         if (serverUpdatedBooking) {
+          if (serverUpdatedBooking.status?.toLowerCase() === "completed") {
+            markBookingIdCompletedInStorage(bookingId);
+          }
+          const mergedWithServer = { ...updatedBooking, ...serverUpdatedBooking };
           setBookings((prev) => {
-            const updatedList = prev.map((b) => (b.request_id === bookingId ? serverUpdatedBooking : b));
+            const updatedList = prev.map((b) => (b.request_id === bookingId ? mergedWithServer : b));
             try {
               localStorage.setItem("fix_home_all_bookings", JSON.stringify(updatedList));
             } catch (e) {}
             return updatedList;
           });
-          syncBookingToFirestore(serverUpdatedBooking);
-        } else if (targetBooking) {
-          syncBookingToFirestore({ ...targetBooking, status: cleanStatus as any });
+          syncBookingToFirestore(mergedWithServer);
         }
       } else if (res.status === 401) {
         handleLogout("Session expired. Please log in again.");
@@ -1669,6 +1987,12 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
         }
         window.dispatchEvent(new Event("storage"));
       } catch (e) {}
+
+      // Sync updated PII-deleted record to Firestore
+      const deletedBooking = newBookings.find((b) => b.request_id === bookingId);
+      if (deletedBooking) {
+        syncBookingToFirestore(deletedBooking);
+      }
 
       setPiiDeleteSuccess(`Customer user details deleted for request #${bookingId}. Service log permanently retained.`);
       setTimeout(() => setPiiDeleteSuccess(""), 4000);
@@ -2203,8 +2527,14 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
   }
 
   // LOGGED IN DASHBOARD
-  const activeBookings = bookings.filter((b) => b.status !== "Completed");
-  const historyBookings = bookings.filter((b) => b.status === "Completed");
+  const isDispatchCompletedOrCancelled = (status: string | undefined | null, requestId?: string): boolean => {
+    if (requestId && getCompletedBookingIds().has(requestId)) return true;
+    const s = String(status || "").trim().toLowerCase();
+    return s === "completed" || s === "cancelled" || s === "canceled";
+  };
+
+  const activeBookings = bookings.filter((b) => !isDispatchCompletedOrCancelled(b.status, b.request_id));
+  const historyBookings = bookings.filter((b) => isDispatchCompletedOrCancelled(b.status, b.request_id));
 
   const filteredHistory = historyBookings.filter((b) => {
     const query = historySearchQuery.trim().toLowerCase();
@@ -2308,6 +2638,24 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
           </span>
         </div>
 
+        {statusNotice && (
+          <div className="p-3 sm:p-4 bg-emerald-50 border border-emerald-300 text-[#3f6212] font-bold text-xs rounded-2xl flex items-center justify-between shadow-xs animate-in fade-in duration-200">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 size={18} className="text-[#65a30d] shrink-0" />
+              <span>{statusNotice}</span>
+            </div>
+            {adminTab !== "history" && (
+              <button
+                type="button"
+                onClick={() => navigateAdminTab("history")}
+                className="text-[10px] font-extrabold bg-[#65a30d] text-white px-2.5 py-1 rounded-lg hover:bg-[#52840a] transition-all cursor-pointer shrink-0 ml-2"
+              >
+                View History →
+              </button>
+            )}
+          </div>
+        )}
+
         {/* SECTION 1: BOOKING DISPATCH REQUESTS (ACTIVE DISPATCHES TAB) */}
         {(adminTab === "active" || adminTab === "all") && (
         <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-100 shadow-sm space-y-4 max-w-full overflow-hidden">
@@ -2341,22 +2689,6 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
               </button>
             </div>
           </div>
-
-          {statusNotice && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 text-[#52840a] font-bold text-xs rounded-2xl flex items-center justify-between shadow-xs animate-in fade-in duration-200">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-[#65a30d] shrink-0" />
-                <span>{statusNotice}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => navigateAdminTab("history")}
-                className="text-[10px] font-extrabold bg-[#65a30d] text-white px-2.5 py-1 rounded-lg hover:bg-[#52840a] transition-all cursor-pointer shrink-0"
-              >
-                View History →
-              </button>
-            </div>
-          )}
 
           {piiDeleteSuccess && (
             <div className="p-3 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-150">
@@ -2442,14 +2774,34 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
                       </div>
 
                       {/* Status badge and single tap slider action */}
-                      <div className="shrink-0 flex items-center">
+                      <div className="shrink-0 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleUpdateStatus(booking.request_id, "Completed");
+                          }}
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold rounded-lg flex items-center gap-1 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                          title="Mark service as completed and move immediately to Permanent History"
+                        >
+                          <CheckCircle2 size={12} className="text-white" />
+                          <span>Mark as Completed</span>
+                        </button>
+
                         <select
-                          value={booking.status}
+                          value={
+                            booking.status?.toLowerCase() === "completed" ? "Completed" :
+                            booking.status?.toLowerCase() === "cancelled" ? "Cancelled" :
+                            booking.status?.toLowerCase() === "in progress" || booking.status?.toLowerCase() === "in_progress" ? "In Progress" :
+                            booking.status?.toLowerCase() === "assigned" ? "Assigned" :
+                            "Pending"
+                          }
                           onChange={(e) => handleUpdateStatus(booking.request_id, e.target.value)}
                           className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg outline-hidden border transition-all cursor-pointer shadow-2xs ${
                             booking.status === "Pending" ? "bg-amber-100 text-amber-900 border-amber-300" :
                             booking.status === "Assigned" ? "bg-blue-100 text-blue-900 border-blue-300" :
                             booking.status === "In Progress" ? "bg-purple-100 text-purple-900 border-purple-300" :
+                            booking.status === "Cancelled" ? "bg-rose-100 text-rose-900 border-rose-300" :
                             "bg-emerald-100 text-emerald-900 border-emerald-300"
                           }`}
                         >
@@ -2457,6 +2809,7 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
                           <option value="Assigned">Assigned</option>
                           <option value="In Progress">In Progress</option>
                           <option value="Completed">Completed</option>
+                          <option value="Cancelled">Cancelled</option>
                         </select>
                       </div>
                     </div>
@@ -2817,13 +3170,22 @@ export default function AdminPortal({ onAdminTabChange, currentLanguage = "en", 
                     <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 min-w-0">
                       <div className="text-[10px] text-slate-500 font-mono tracking-tight flex items-center gap-1.5 min-w-0">
                         <Clock size={11} className="text-slate-400 shrink-0" />
-                        <span className="truncate">Completed: {new Date(h.updated_at || h.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
+                        <span className="truncate">
+                          {h.status === "Cancelled" ? "Cancelled: " : "Completed: "}
+                          {new Date(h.updated_at || h.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                        </span>
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="bg-emerald-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-2xs">
-                          <CheckCircle2 size={11} /> COMPLETED
-                        </span>
+                        {h.status === "Cancelled" ? (
+                          <span className="bg-rose-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-2xs">
+                            <X size={11} /> CANCELLED
+                          </span>
+                        ) : (
+                          <span className="bg-emerald-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-2xs">
+                            <CheckCircle2 size={11} /> COMPLETED
+                          </span>
+                        )}
                         <span className="text-[9px] font-mono text-slate-400 font-bold uppercase select-all">
                           ID: {h.request_id.slice(0, 8)}...
                         </span>

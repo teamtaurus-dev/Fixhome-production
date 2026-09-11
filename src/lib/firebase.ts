@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { initializeFirestore } from "firebase/firestore";
+import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getMessaging, getToken, onMessage, isSupported, Messaging } from "firebase/messaging";
 import firebaseConfigData from "../../firebase-applet-config.json";
@@ -19,9 +19,7 @@ if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
 
 // Initialize Firebase App
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-export const db = initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true
-}, firebaseConfigData.firestoreDatabaseId);
+export const db = getFirestore(app, firebaseConfigData.firestoreDatabaseId);
 export const auth = getAuth(app);
 
 let messagingInstance: Messaging | null = null;

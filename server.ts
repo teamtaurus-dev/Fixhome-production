@@ -4,7 +4,13 @@ import multer from "multer";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import fs from "fs";
-import { createServer as createViteServer } from "vite";
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+});
 import {
   initDb,
   getDbStatus,
@@ -18,6 +24,7 @@ import {
   getBookingById,
   getBookings,
   updateBookingStatus,
+  cancelBooking,
   purgeOldBookingsPII,
   purgeBookingPIIById,
   getWorkers,
@@ -40,7 +47,8 @@ import {
   getTelegramConfig,
   saveTelegramConfig,
   sendTelegramMessage,
-  sendBookingTelegramNotification
+  sendBookingTelegramNotification,
+  sendCancellationTelegramNotification
 } from "./server/telegram.ts";
 
 const app = express();
@@ -511,15 +519,29 @@ app.post("/api/bookings/:id/assign-worker", authenticateAdmin, async (req, res) 
 // 7. ADMIN-ONLY: Update Booking Status
 app.put("/api/bookings/:id/status", authenticateAdmin, async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  const rawStatus = String(req.body?.status || "").trim();
 
-  const validStatuses = ["Pending", "Assigned", "In Progress", "Completed"];
-  if (!status || !validStatuses.includes(status)) {
-    return res.status(400).json({ error: "Invalid booking status. Must be Pending, Assigned, In Progress, or Completed." });
+  // Normalize status casing and format (e.g. "completed" -> "Completed", "in_progress" -> "In Progress")
+  const statusMapping: Record<string, "Pending" | "Assigned" | "In Progress" | "Completed" | "Cancelled"> = {
+    "pending": "Pending",
+    "assigned": "Assigned",
+    "in progress": "In Progress",
+    "in_progress": "In Progress",
+    "completed": "Completed",
+    "cancelled": "Cancelled",
+    "canceled": "Cancelled"
+  };
+
+  const normalizedStatus = statusMapping[rawStatus.toLowerCase()] || 
+    (["Pending", "Assigned", "In Progress", "Completed", "Cancelled"].includes(rawStatus) ? (rawStatus as any) : null);
+
+  if (!normalizedStatus) {
+    return res.status(400).json({ error: "Invalid booking status. Must be Pending, Assigned, In Progress, Completed, or Cancelled." });
   }
 
   try {
-    const updated = await updateBookingStatus(id, status as any);
+    const fallbackBooking = req.body?.booking || req.body;
+    const updated = await updateBookingStatus(id, normalizedStatus, fallbackBooking);
     if (updated) {
       res.json({ success: true, booking: updated });
     } else {
@@ -528,6 +550,33 @@ app.put("/api/bookings/:id/status", authenticateAdmin, async (req, res) => {
   } catch (err) {
     console.error("Error updating booking status:", err);
     res.status(500).json({ error: "Could not update booking status." });
+  }
+});
+
+// 8. CUSTOMER: Cancel Booking (Pre-Worker Assignment Only; Purges Customer PII & Sends Telegram Alert)
+app.post("/api/bookings/:id/cancel", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await cancelBooking(id);
+    if (!result.success) {
+      return res.status(400).json({ error: result.error || "Could not cancel booking request." });
+    }
+
+    // Trigger asynchronous Telegram alert to Admin
+    if (result.booking) {
+      sendCancellationTelegramNotification(result.booking).catch((err) => {
+        console.error("Error dispatching cancellation Telegram notification:", err);
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Booking cancelled successfully. Customer personal details have been automatically deleted.",
+      booking: result.booking
+    });
+  } catch (err: any) {
+    console.error("Error processing booking cancellation:", err);
+    res.status(500).json({ error: "Internal server error while cancelling service request." });
   }
 });
 
@@ -886,29 +935,25 @@ app.post("/api/admin/telegram-test", async (req, res) => {
 // ==================== ASYNC BOOT & ROUTING INTERFACES ====================
 
 async function startServer() {
-  // 1. Initialize the Database tables and Seed default admin credentials
-  try {
-    await initDb();
-    console.log("Database initialized successfully!");
-  } catch (err) {
-    console.error("Database initialization failed during bootstrap:", err);
-  }
+  const isBundled = typeof __filename !== "undefined" && (__filename.endsWith(".cjs") || __dirname.endsWith("dist"));
+  const isProduction = process.env.NODE_ENV === "production" || isBundled;
 
-  // 2. Start automatic 6-hour PII data retention policy timer
-  purgeOldBookingsPII().catch((err) => console.error("Initial PII purge check error:", err));
-  setInterval(() => {
-    purgeOldBookingsPII().catch((err) => console.error("Interval PII purge check error:", err));
-  }, 60000); // Continuous 60s background check
-  console.log("Auto PII Purge active: Customer details (phone & location) deleted after 6 hours. Service records retained.");
-
-  // 3. Setup Vite development middlewares OR build folder serving
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-    console.log("Mounted Vite development middleware");
+  // 1. Setup Vite development middlewares OR static production build folder serving
+  if (!isProduction) {
+    try {
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: {
+          middlewareMode: true,
+          hmr: process.env.DISABLE_HMR === "true" ? false : undefined,
+        },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+      console.log("Mounted Vite development middleware");
+    } catch (viteErr) {
+      console.error("Vite development middleware failed to mount:", viteErr);
+    }
   } else {
     const distPath = path.join(process.cwd(), "dist");
     
@@ -946,8 +991,21 @@ async function startServer() {
     console.log("Serving production static assets from dist/ with proper Cache-Control headers");
   }
 
+  // 2. Start listening on port 3000 immediately so Cloud Run health check passes instantly
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`FixHome Full-Stack Server running on http://0.0.0.0:${PORT}`);
+
+    // 3. Asynchronously initialize the database and background jobs without delaying port binding
+    initDb().catch((err) => {
+      console.error("Database initialization failed during bootstrap:", err);
+    });
+
+    // 4. Start automatic 6-hour PII data retention policy timer
+    purgeOldBookingsPII().catch((err) => console.error("Initial PII purge check error:", err));
+    setInterval(() => {
+      purgeOldBookingsPII().catch((err) => console.error("Interval PII purge check error:", err));
+    }, 60000); // Continuous 60s background check
+    console.log("Auto PII Purge active: Customer details (phone & location) deleted after 6 hours. Service records retained.");
   });
 }
 

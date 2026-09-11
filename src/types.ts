@@ -47,7 +47,7 @@ export interface Booking {
   google_maps_url?: string | null;
   landmark: string | null;
   additional_notes: string | null;
-  status: "Pending" | "Assigned" | "In Progress" | "Completed";
+  status: "Pending" | "Assigned" | "In Progress" | "Completed" | "Cancelled";
   is_personal_data_deleted: boolean;
   assigned_worker_id?: string | null;
   assigned_worker_name?: string | null;

@@ -263,6 +263,48 @@ export async function sendBookingTelegramNotification(
   return result;
 }
 
+/**
+ * Send rich notification when a booking is cancelled by the customer
+ */
+export async function sendCancellationTelegramNotification(
+  booking: any
+): Promise<{ success: boolean; error?: string }> {
+  const config = getTelegramConfig();
+  if (!config.enabled) {
+    console.log("[Telegram] Notifications disabled in settings.");
+    return { success: false, error: "Telegram notifications are disabled in settings." };
+  }
+
+  if (!config.botToken || !config.chatId) {
+    console.warn("[Telegram] Missing Bot Token or Chat ID.");
+    return { success: false, error: "Missing Bot Token or Chat ID. Configure in Admin Portal." };
+  }
+
+  const requestId = booking.request_id || "N/A";
+  const serviceType = booking.service_type || "General Service";
+  const formattedDate = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+
+  const message = `🚫 <b>SERVICE REQUEST CANCELLED</b> 🚫
+
+🆔 <b>Booking ID:</b> <code>#${escapeHtml(requestId)}</code>
+🛠️ <b>Service Type:</b> <b>${escapeHtml(serviceType)}</b>
+📊 <b>Status:</b> <b>Cancelled by Customer (Pre-Assignment)</b>
+🗑️ <b>Data Privacy:</b> <i>Customer phone, address & location details have been automatically and permanently deleted.</i>
+
+⏰ <b>Cancelled At:</b> ${escapeHtml(formattedDate)}
+
+<i>FixHome Automated Instant Alert</i>`;
+
+  console.log(`[Telegram Dispatching] Triggering cancellation alert for #${requestId} to Chat ID: ${config.chatId}`);
+  const result = await sendTelegramMessage(message, config.botToken, config.chatId);
+  if (result.success) {
+    console.log(`[Telegram Dispatch SUCCESS] Cancellation alert delivered for #${requestId}`);
+  } else {
+    console.error(`[Telegram Dispatch ERROR] Cancellation alert failed for #${requestId}: ${result.error}`);
+  }
+  return result;
+}
+
 function escapeHtml(text: string): string {
   if (!text) return "";
   return String(text)

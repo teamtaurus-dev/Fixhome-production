@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "gcp-build": "npm run build",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
@@ -20,6 +21,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.2.3",
+    "esbuild": "^0.25.0",
     "expo": "~52.0.0",
     "expo-build-properties": "~0.13.3",
     "expo-updates": "~0.27.5",
@@ -35,6 +37,7 @@
     "react-dom": "18.3.1",
     "react-native": "0.76.9",
     "react-native-webview": "13.12.5",
+    "tailwindcss": "^4.1.14",
     "vite": "^6.2.3"
   },
   "devDependencies": {
@@ -45,9 +48,7 @@
     "@types/node": "^22.14.0",
     "@types/pg": "^8.20.0",
     "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
     "sharp": "^0.35.3",
-    "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2"
   }

@@ -58,13 +58,38 @@ export async function emitGlobalAdminSignal(actionName: string) {
 }
 
 /**
+ * Helper to deep-clean payloads before sending to Firestore.
+ * Firestore strictly rejects 'undefined' field values and throws an error.
+ * This converts all 'undefined' properties to null or strips them recursively.
+ */
+function cleanDataForFirestore(data: any): any {
+  if (data === null || data === undefined) return null;
+  if (typeof data !== "object") return data;
+  if (Array.isArray(data)) {
+    return data.map(cleanDataForFirestore);
+  }
+  const result: Record<string, any> = {};
+  for (const [key, val] of Object.entries(data)) {
+    if (val === undefined) {
+      result[key] = null;
+    } else if (val !== null && typeof val === "object") {
+      result[key] = cleanDataForFirestore(val);
+    } else {
+      result[key] = val;
+    }
+  }
+  return result;
+}
+
+/**
  * Sync active Categories list to Firestore for instant multi-device sync
  */
 export async function syncCategoriesToFirestore(categories: Category[]) {
   const path = "app_sync/categories";
   try {
+    const cleaned = cleanDataForFirestore(categories);
     await setDoc(doc(db, "app_sync", "categories"), {
-      data: categories,
+      data: cleaned,
       updatedAt: new Date().toISOString()
     });
     await emitGlobalAdminSignal("CATEGORIES_UPDATED");
@@ -79,8 +104,9 @@ export async function syncCategoriesToFirestore(categories: Category[]) {
 export async function syncOffersToFirestore(offers: Offer[]) {
   const path = "app_sync/offers";
   try {
+    const cleaned = cleanDataForFirestore(offers);
     await setDoc(doc(db, "app_sync", "offers"), {
-      data: offers,
+      data: cleaned,
       updatedAt: new Date().toISOString()
     });
     await emitGlobalAdminSignal("OFFERS_UPDATED");
@@ -95,8 +121,9 @@ export async function syncOffersToFirestore(offers: Offer[]) {
 export async function syncWorkersToFirestore(workers: Worker[]) {
   const path = "app_sync/workers";
   try {
+    const cleaned = cleanDataForFirestore(workers);
     await setDoc(doc(db, "app_sync", "workers"), {
-      data: workers,
+      data: cleaned,
       updatedAt: new Date().toISOString()
     });
     await emitGlobalAdminSignal("WORKERS_UPDATED");
@@ -112,10 +139,11 @@ export async function syncBookingToFirestore(booking: Booking) {
   if (!booking || !booking.request_id) return;
   const path = `bookings/${booking.request_id}`;
   try {
-    await setDoc(doc(db, "bookings", booking.request_id), {
+    const cleaned = cleanDataForFirestore({
       ...booking,
       updatedAtFirestore: new Date().toISOString()
-    }, { merge: true });
+    });
+    await setDoc(doc(db, "bookings", booking.request_id), cleaned, { merge: true });
     await emitGlobalAdminSignal("BOOKING_UPDATED");
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
